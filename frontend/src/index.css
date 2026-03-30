@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0f172a;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+input, select {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: white !important;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #38bdf8 !important;
+}

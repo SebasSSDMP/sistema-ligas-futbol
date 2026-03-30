@@ -1,0 +1,28 @@
+2026-03-30 09:30:56 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-03-30 09:30:56 | INFO     | database.repositories | Liga creada: La Liga (ID: 3)
+2026-03-30 09:30:56 | INFO     | database.repositories | Temporada creada: 2024-2025 (ID: 3)
+2026-03-30 09:30:56 | INFO     | database.repositories | Equipo creado: Real Madrid (ID: 7)
+2026-03-30 09:30:56 | INFO     | database.repositories | Equipo creado: Barcelona (ID: 8)
+2026-03-30 09:30:56 | INFO     | database.repositories | Equipo creado: Atletico Madrid (ID: 9)
+2026-03-30 09:30:56 | INFO     | database.repositories | Equipo creado: Sevilla (ID: 10)
+2026-03-30 09:30:56 | INFO     | database.repositories | Partido creado (ID: 7)
+2026-03-30 09:30:56 | INFO     | database.repositories | Partido creado (ID: 8)
+2026-03-30 09:30:56 | INFO     | database.repositories | Partido creado (ID: 9)
+2026-03-30 09:30:56 | INFO     | database.repositories | Partido creado (ID: 10)
+2026-03-30 09:30:56 | INFO     | database.repositories | Partido creado (ID: 11)
+2026-03-30 09:31:01 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-03-30 09:31:01 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-03-30 09:31:01 | INFO     | ui.app | Aplicación iniciada
+2026-03-30 09:31:09 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-03-30 09:31:09 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-03-30 09:31:09 | INFO     | ui.app | Aplicación iniciada
+2026-03-30 09:31:16 | ERROR    | database.repositories | Error eliminando liga: FOREIGN KEY constraint failed
+2026-03-30 09:31:29 | INFO     | database.repositories | Liga creada: FPC (ID: 4)
+2026-03-30 09:32:27 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-03-30 09:32:27 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-03-30 09:32:27 | INFO     | ui.app | Aplicación iniciada
+2026-03-30 09:32:32 | INFO     | ui.app | Navegando a: PantallaLiga
+2026-03-30 09:32:40 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-03-30 09:33:15 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-03-30 09:33:15 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-03-30 09:33:15 | INFO     | ui.app | Aplicación iniciada
