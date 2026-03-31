@@ -33,17 +33,24 @@ else:
     logger.info("API_FOOTBALL_KEY is configured")
 
 # CORS middleware
-origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-origins = [origin.strip() for origin in origins if origin.strip()]
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
 
 if not origins:
-    origins = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ]
+
+logger.info(f"CORS allowed origins: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
