@@ -1,8 +1,7 @@
-from pydantic import BaseModel, validator
-from typing import Optional, Dict, Any
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, Union
 from datetime import date, datetime
-from datetime import date, datetime
-from typing import Union
+
 
 class LigaBase(BaseModel):
     nombre: str
@@ -66,7 +65,7 @@ class Equipo(EquipoBase):
 
 
 class PartidoBase(BaseModel):
-    fecha: Optional[Union[datetime, date]] = None  # ← acepta ambos
+    fecha: Optional[Union[datetime, date]] = None
     equipo_local: int
     equipo_visitante: int
     goles_local: int = 0
@@ -104,12 +103,14 @@ class RankingLiga(BaseModel):
     total_partidos: int
 
 
+# ── Modelos de caché (football-data.org) ──────────────────────────────────────
+
 class LigaCache(BaseModel):
     id: int
     name: Optional[str] = None
     country: Optional[str] = None
-    logo: Optional[str] = None
-    season: Optional[int] = None
+    logo: Optional[str] = None      # emblem en la API
+    season: Optional[int] = None    # año extraído de currentSeason.startDate
 
     class Config:
         from_attributes = True
@@ -119,7 +120,7 @@ class EquipoCache(BaseModel):
     id: int
     liga_id: Optional[int] = None
     name: Optional[str] = None
-    logo: Optional[str] = None
+    logo: Optional[str] = None      # crest en la API
 
     class Config:
         from_attributes = True
@@ -129,12 +130,12 @@ class PartidoCache(BaseModel):
     id: int
     equipo_local_id: Optional[int] = None
     equipo_visitante_id: Optional[int] = None
-    fecha: Optional[str] = None
-    jornada: Optional[str] = None
-    goles_local: Optional[int] = None
-    goles_visitante: Optional[int] = None
-    estado: Optional[str] = None
-    tiempo: Optional[int] = None
+    fecha: Optional[str] = None             # utcDate ISO-8601
+    jornada: Optional[int] = None           # matchday (entero) — era str en la API anterior
+    goles_local: Optional[int] = None       # score.fullTime.home
+    goles_visitante: Optional[int] = None   # score.fullTime.away
+    estado: Optional[str] = None            # "FINISHED", "SCHEDULED", etc.
+    tiempo: Optional[int] = None            # minute (minuto transcurrido)
     liga_id: Optional[int] = None
     temporada: Optional[int] = None
 

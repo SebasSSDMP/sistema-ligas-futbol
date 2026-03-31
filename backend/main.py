@@ -6,7 +6,6 @@ import psycopg2
 import psycopg2.extras
 import os
 import logging
-from urllib.parse import urlparse
 from datetime import datetime
 
 from models import (
@@ -19,7 +18,6 @@ from models import (
 )
 from api_football import APIFootballCache
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,8 +25,7 @@ logger = logging.getLogger(__name__)
 def get_database_url():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        logger.warning("DATABASE_URL not set, falling back to SQLite for local development")
-        return "sqlite:///./data/futbol.db"
+        raise ValueError("DATABASE_URL environment variable is not set")
     return database_url
 
 
@@ -44,62 +41,61 @@ def get_connection():
 def init_db():
     conn = None
     try:
-        conn = get_connection()
+        conn   = get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ligas (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(255) NOT NULL,
-                pais VARCHAR(100),
+                id         SERIAL PRIMARY KEY,
+                nombre     VARCHAR(255) NOT NULL,
+                pais       VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS equipos (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(255) NOT NULL,
-                liga_id INTEGER REFERENCES ligas(id),
+                id         SERIAL PRIMARY KEY,
+                nombre     VARCHAR(255) NOT NULL,
+                liga_id    INTEGER REFERENCES ligas(id),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS temporadas (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(100) NOT NULL,
-                liga_id INTEGER REFERENCES ligas(id),
+                id          SERIAL PRIMARY KEY,
+                nombre      VARCHAR(100) NOT NULL,
+                liga_id     INTEGER REFERENCES ligas(id),
                 fecha_inicio DATE,
-                fecha_fin DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                fecha_fin    DATE,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS partidos (
-                id SERIAL PRIMARY KEY,
-                fecha DATE,
-                equipo_local INTEGER REFERENCES equipos(id),
+                id               SERIAL PRIMARY KEY,
+                fecha            DATE,
+                equipo_local     INTEGER REFERENCES equipos(id),
                 equipo_visitante INTEGER REFERENCES equipos(id),
-                goles_local INTEGER DEFAULT 0,
-                goles_visitante INTEGER DEFAULT 0,
-                arbitro VARCHAR(255),
-                estadio VARCHAR(255),
-                temporada_id INTEGER REFERENCES temporadas(id),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                goles_local      INTEGER DEFAULT 0,
+                goles_visitante  INTEGER DEFAULT 0,
+                arbitro          VARCHAR(255),
+                estadio          VARCHAR(255),
+                temporada_id     INTEGER REFERENCES temporadas(id),
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_equipos_liga_id ON equipos(liga_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporadas_liga_id ON temporadas(liga_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_temporada_id ON partidos(temporada_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_equipo_local ON partidos(equipo_local)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_equipo_visitante ON partidos(equipo_visitante)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_equipos_liga_id         ON equipos(liga_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporadas_liga_id      ON temporadas(liga_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_temporada_id   ON partidos(temporada_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_equipo_local   ON partidos(equipo_local)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_equipo_visit   ON partidos(equipo_visitante)")
 
         conn.commit()
         logger.info("Database tables initialized successfully")
-
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         if conn:
@@ -113,22 +109,21 @@ def init_db():
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Validate API key
-    api_key = os.environ.get("API_FOOTBALL_KEY")
+    # Validar API key — ahora se llama FOOTBALL_DATA_KEY
+    api_key = os.environ.get("FOOTBALL_DATA_KEY")
     if not api_key:
-        logger.error("API_FOOTBALL_KEY environment variable is not set!")
+        logger.error("FOOTBALL_DATA_KEY environment variable is not set!")
     else:
-        logger.info("API_FOOTBALL_KEY is configured")
+        logger.info("FOOTBALL_DATA_KEY is configured")
 
     init_db()
     cache = APIFootballCache()
     cache._init_cache_tables()
     logger.info("Database and cache tables initialized on startup")
     yield
-    # Shutdown (agregar limpieza aquí si es necesario)
 
 
-# ── App (una sola instancia) ──────────────────────────────────────────────────
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="API Gestión de Ligas de Fútbol", version="1.0.0", lifespan=lifespan)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
@@ -154,7 +149,7 @@ app.add_middleware(
 )
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── DB dependency ─────────────────────────────────────────────────────────────
 def get_db():
     conn = None
     try:
@@ -165,7 +160,7 @@ def get_db():
             conn.close()
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints básicos ─────────────────────────────────────────────────────────
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
@@ -173,7 +168,6 @@ def health_check():
 
 @app.get("/")
 def root():
-    logger.info("Root endpoint accessed")
     return {"message": "API Gestión de Ligas de Fútbol", "status": "running"}
 
 
@@ -188,7 +182,10 @@ def obtener_ligas(db=Depends(get_db)):
 @app.post("/ligas", response_model=Liga)
 def crear_liga(liga: LigaCreate, db=Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("INSERT INTO ligas (nombre, pais) VALUES (%s, %s) RETURNING id", (liga.nombre, liga.pais))
+    cursor.execute(
+        "INSERT INTO ligas (nombre, pais) VALUES (%s, %s) RETURNING id",
+        (liga.nombre, liga.pais)
+    )
     db.commit()
     liga_id = cursor.fetchone()["id"]
     cursor.execute("SELECT * FROM ligas WHERE id = %s", (liga_id,))
@@ -198,7 +195,10 @@ def crear_liga(liga: LigaCreate, db=Depends(get_db)):
 @app.put("/ligas/{liga_id}", response_model=Liga)
 def actualizar_liga(liga_id: int, liga: LigaUpdate, db=Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("UPDATE ligas SET nombre = %s, pais = %s WHERE id = %s", (liga.nombre, liga.pais, liga_id))
+    cursor.execute(
+        "UPDATE ligas SET nombre = %s, pais = %s WHERE id = %s",
+        (liga.nombre, liga.pais, liga_id)
+    )
     db.commit()
     cursor.execute("SELECT * FROM ligas WHERE id = %s", (liga_id,))
     return dict(cursor.fetchone())
@@ -207,10 +207,13 @@ def actualizar_liga(liga_id: int, liga: LigaUpdate, db=Depends(get_db)):
 @app.delete("/ligas/{liga_id}")
 def eliminar_liga(liga_id: int, db=Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("DELETE FROM partidos WHERE temporada_id IN (SELECT id FROM temporadas WHERE liga_id = %s)", (liga_id,))
-    cursor.execute("DELETE FROM equipos WHERE liga_id = %s", (liga_id,))
+    cursor.execute(
+        "DELETE FROM partidos WHERE temporada_id IN (SELECT id FROM temporadas WHERE liga_id = %s)",
+        (liga_id,)
+    )
+    cursor.execute("DELETE FROM equipos  WHERE liga_id = %s", (liga_id,))
     cursor.execute("DELETE FROM temporadas WHERE liga_id = %s", (liga_id,))
-    cursor.execute("DELETE FROM ligas WHERE id = %s", (liga_id,))
+    cursor.execute("DELETE FROM ligas    WHERE id = %s", (liga_id,))
     db.commit()
     return {"message": "Liga eliminada"}
 
@@ -247,7 +250,10 @@ def obtener_equipos(liga_id: int, db=Depends(get_db)):
 @app.post("/equipos", response_model=Equipo)
 def crear_equipo(equipo: EquipoCreate, db=Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("INSERT INTO equipos (nombre, liga_id) VALUES (%s, %s) RETURNING id", (equipo.nombre, equipo.liga_id))
+    cursor.execute(
+        "INSERT INTO equipos (nombre, liga_id) VALUES (%s, %s) RETURNING id",
+        (equipo.nombre, equipo.liga_id)
+    )
     db.commit()
     equipo_id = cursor.fetchone()["id"]
     cursor.execute("SELECT * FROM equipos WHERE id = %s", (equipo_id,))
@@ -278,7 +284,10 @@ def eliminar_equipo(equipo_id: int, db=Depends(get_db)):
 @app.get("/temporadas/{temporada_id}/partidos", response_model=List[Partido])
 def obtener_partidos(temporada_id: int, db=Depends(get_db)):
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM partidos WHERE temporada_id = %s ORDER BY fecha", (temporada_id,))
+    cursor.execute(
+        "SELECT * FROM partidos WHERE temporada_id = %s ORDER BY fecha",
+        (temporada_id,)
+    )
     return [dict(row) for row in cursor.fetchall()]
 
 
@@ -287,8 +296,8 @@ def crear_partido(partido: PartidoCreate, db=Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
         """INSERT INTO partidos
-        (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
         (
             partido.fecha, partido.equipo_local, partido.equipo_visitante,
             partido.goles_local, partido.goles_visitante, partido.arbitro,
@@ -301,17 +310,17 @@ def crear_partido(partido: PartidoCreate, db=Depends(get_db)):
     return dict(cursor.fetchone())
 
 
-# ESTADISTICAS
+# ESTADÍSTICAS
 @app.get("/ligas/{liga_id}/estadisticas", response_model=EstadisticasLiga)
 def obtener_estadisticas(liga_id: int, db=Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
         """
         SELECT
-            AVG(p.goles_local + p.goles_visitante) as promedio,
-            COUNT(p.id) as total_partidos,
-            SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3 THEN 1 ELSE 0 END) as partidos_alto,
-            SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END) as partidos_bajo
+            AVG(p.goles_local + p.goles_visitante)                                        AS promedio,
+            COUNT(p.id)                                                                    AS total_partidos,
+            SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3  THEN 1 ELSE 0 END)    AS partidos_alto,
+            SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END)    AS partidos_bajo
         FROM partidos p
         JOIN temporadas t ON p.temporada_id = t.id
         WHERE t.liga_id = %s
@@ -321,18 +330,15 @@ def obtener_estadisticas(liga_id: int, db=Depends(get_db)):
     row = cursor.fetchone()
     if row:
         return {
-            "liga_id": liga_id,
-            "promedio_goles": round(row["promedio"], 2) if row["promedio"] else 0.0,
-            "total_partidos": row["total_partidos"] or 0,
-            "partidos_mas_3_goles": row["partidos_alto"] or 0,
-            "partidos_menos_igual_3_goles": row["partidos_bajo"] or 0,
+            "liga_id":                        liga_id,
+            "promedio_goles":                 round(row["promedio"], 2) if row["promedio"] else 0.0,
+            "total_partidos":                 row["total_partidos"] or 0,
+            "partidos_mas_3_goles":           row["partidos_alto"] or 0,
+            "partidos_menos_igual_3_goles":   row["partidos_bajo"] or 0,
         }
     return {
-        "liga_id": liga_id,
-        "promedio_goles": 0.0,
-        "total_partidos": 0,
-        "partidos_mas_3_goles": 0,
-        "partidos_menos_igual_3_goles": 0,
+        "liga_id": liga_id, "promedio_goles": 0.0,
+        "total_partidos": 0, "partidos_mas_3_goles": 0, "partidos_menos_igual_3_goles": 0,
     }
 
 
@@ -343,14 +349,12 @@ def ranking_ligas(db=Depends(get_db)):
     cursor.execute(
         """
         SELECT
-            l.id,
-            l.nombre,
-            l.pais,
-            AVG(p.goles_local + p.goles_visitante) as promedio_goles,
-            COUNT(p.id) as total_partidos
+            l.id, l.nombre, l.pais,
+            AVG(p.goles_local + p.goles_visitante) AS promedio_goles,
+            COUNT(p.id)                             AS total_partidos
         FROM ligas l
         LEFT JOIN temporadas t ON t.liga_id = l.id
-        LEFT JOIN partidos p ON p.temporada_id = t.id
+        LEFT JOIN partidos   p ON p.temporada_id = t.id
         GROUP BY l.id
         ORDER BY promedio_goles DESC
         """
@@ -370,7 +374,7 @@ def reset_database(db=Depends(get_db)):
     return {"message": "Base de datos limpiada"}
 
 
-# EXTERNAL API
+# ── External API (football-data.org) ──────────────────────────────────────────
 @app.get("/external/ligas", response_model=List[LigaCache])
 def obtener_ligas_externas(force_refresh: bool = Query(False)):
     cache = APIFootballCache()
@@ -406,32 +410,33 @@ def limpiar_cache(tipo: Optional[str] = Query(None)):
     return {"message": f"Cache limpiado: {tipo or 'todo'}"}
 
 
-# IMPORTAR / ACTUALIZAR
+# ── Importar / Actualizar ─────────────────────────────────────────────────────
 @app.post("/importar-liga/{liga_id}")
 def importar_liga(liga_id: int, temporada: int = Query(2024)):
-    logger.info(f"{'='*50}")
-    logger.info(f"IMPORTANDO LIGA ID: {liga_id}")
-    logger.info(f"{'='*50}")
+    """
+    Importa una competición de football-data.org a la BD local.
+    liga_id = ID numérico de la competición, ej. 2021 (Premier League), 2014 (La Liga).
+    """
+    logger.info(f"{'='*50}\nIMPORTANDO LIGA ID: {liga_id}\n{'='*50}")
 
     db = None
     try:
-        db = get_connection()
+        db     = get_connection()
         cursor = db.cursor()
 
-        logger.info("1. Obteniendo datos de API externa...")
-        cache = APIFootballCache()
-        liga_externa = cache.get_ligas(force_refresh=False)
-        equipos_externos = cache.get_equipos(liga_id, force_refresh=False)
+        cache             = APIFootballCache()
+        liga_externa      = cache.get_ligas(force_refresh=False)
+        equipos_externos  = cache.get_equipos(liga_id, force_refresh=False)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=False)
 
         liga_data = next((l for l in liga_externa if l.get("id") == liga_id), None)
         if not liga_data:
-            raise HTTPException(status_code=404, detail=f"Liga {liga_id} no encontrada en API externa")
+            raise HTTPException(status_code=404, detail=f"Liga {liga_id} no encontrada en football-data.org")
 
-        logger.info(f"   Liga: {liga_data.get('name')} ({liga_data.get('country')})")
-        logger.info(f"   Equipos disponibles: {len(equipos_externos)}")
-        logger.info(f"   Partidos disponibles: {len(partidos_externos)}")
+        logger.info(f"Liga: {liga_data.get('name')} ({liga_data.get('country')})")
+        logger.info(f"Equipos: {len(equipos_externos)}  |  Partidos: {len(partidos_externos)}")
 
+        # ── Liga local ────────────────────────────────────────────────────────
         cursor.execute(
             "SELECT id FROM ligas WHERE nombre = %s AND pais = %s",
             (liga_data.get("name"), liga_data.get("country")),
@@ -440,26 +445,24 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
 
         if liga_existente:
             local_liga_id = liga_existente["id"]
-            logger.info(f"\n2. Liga ya existe en BD local con ID: {local_liga_id}")
         else:
-            logger.info("\n2. Insertando liga en base de datos...")
             cursor.execute(
                 "INSERT INTO ligas (nombre, pais) VALUES (%s, %s) RETURNING id",
                 (liga_data.get("name"), liga_data.get("country")),
             )
             db.commit()
             local_liga_id = cursor.fetchone()["id"]
-            logger.info(f"   ✓ Liga guardada: ID {local_liga_id}")
+            logger.info(f"✓ Liga guardada: ID {local_liga_id}")
 
+        # ── Temporada local ───────────────────────────────────────────────────
         cursor.execute(
             "SELECT id FROM temporadas WHERE liga_id = %s AND nombre = %s",
             (local_liga_id, str(temporada)),
         )
-        temporada_existente = cursor.fetchone()
+        temp_row = cursor.fetchone()
 
-        if temporada_existente:
-            local_temporada_id = temporada_existente["id"]
-            logger.info(f"   ✓ Temporada ya existe: ID {local_temporada_id}")
+        if temp_row:
+            local_temporada_id = temp_row["id"]
         else:
             cursor.execute(
                 "INSERT INTO temporadas (nombre, liga_id) VALUES (%s, %s) RETURNING id",
@@ -467,11 +470,11 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             )
             db.commit()
             local_temporada_id = cursor.fetchone()["id"]
-            logger.info(f"   ✓ Temporada creada: ID {local_temporada_id}")
+            logger.info(f"✓ Temporada creada: ID {local_temporada_id}")
 
-        logger.info("\n3. Guardando equipos...")
+        # ── Equipos ───────────────────────────────────────────────────────────
         equipos_guardados = 0
-        equipos_map = {}
+        equipos_map       = {}
 
         for eq in equipos_externos:
             if not eq.get("id") or not eq.get("name"):
@@ -495,62 +498,63 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                 local_eq_id = result["id"]
                 equipos_map[eq["id"]] = local_eq_id
                 equipos_guardados += 1
-                logger.info(f"   ✓ Equipo guardado: {eq.get('name')} (ID local: {local_eq_id})")
+                logger.info(f"✓ Equipo: {eq.get('name')} (ID local: {local_eq_id})")
 
-        logger.info(f"   Total equipos nuevos guardados: {equipos_guardados}")
+        logger.info(f"Equipos nuevos: {equipos_guardados}")
 
-        logger.info("\n4. Guardando partidos...")
+        # ── Partidos ──────────────────────────────────────────────────────────
         partidos_guardados = 0
-        partidos_error = 0
+        partidos_error     = 0
 
         for part in partidos_externos:
             try:
                 if not part.get("id"):
                     continue
-                local_local_id = equipos_map.get(part.get("equipo_local_id"))
+                local_local_id     = equipos_map.get(part.get("equipo_local_id"))
                 local_visitante_id = equipos_map.get(part.get("equipo_visitante_id"))
                 if not local_local_id or not local_visitante_id:
-                    logger.warning(f"   Partido {part.get('id')}: Equipos no encontrados en mapeo")
+                    logger.warning(f"Partido {part.get('id')}: equipos no encontrados en mapeo")
                     continue
+
                 cursor.execute(
                     "SELECT id FROM partidos WHERE equipo_local = %s AND equipo_visitante = %s AND fecha = %s",
                     (local_local_id, local_visitante_id, part.get("fecha")),
                 )
                 if cursor.fetchone():
-                    logger.warning(f"   Partido {part.get('id')} ya existe, omitiendo")
                     continue
+
                 cursor.execute(
                     """INSERT INTO partidos
-                       (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id)
+                       (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante,
+                        arbitro, estadio, temporada_id)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
-                        part.get("fecha"), local_local_id, local_visitante_id,
-                        part.get("goles_local") or 0, part.get("goles_visitante") or 0,
-                        part.get("arbitro") or "Por definir", part.get("estadio") or "Por definir",
+                        part.get("fecha"),
+                        local_local_id,
+                        local_visitante_id,
+                        part.get("goles_local")     or 0,
+                        part.get("goles_visitante") or 0,
+                        "Por definir",
+                        "Por definir",
                         local_temporada_id,
                     ),
                 )
                 db.commit()
                 partidos_guardados += 1
-                if partidos_guardados <= 10:
-                    logger.info(f"   ✓ Partido guardado: {part.get('goles_local')}-{part.get('goles_visitante')}")
             except Exception as e:
                 partidos_error += 1
-                logger.error(f"   ✗ Error guardando partido {part.get('id')}: {e}")
+                logger.error(f"Error guardando partido {part.get('id')}: {e}")
 
-        logger.info(f"\n   Total partidos nuevos guardados: {partidos_guardados}")
-        if partidos_error > 0:
-            logger.warning(f"   Partidos con errores: {partidos_error}")
-        logger.info(f"{'='*50}\nIMPORTACIÓN COMPLETADA\n{'='*50}")
+        logger.info(f"Partidos nuevos: {partidos_guardados}  |  Errores: {partidos_error}")
 
         return {
-            "liga": liga_data.get("name"),
-            "liga_id": local_liga_id,
-            "temporada": str(temporada),
+            "liga":              liga_data.get("name"),
+            "liga_id":           local_liga_id,
+            "temporada":         str(temporada),
             "equipos_guardados": equipos_guardados,
             "partidos_guardados": partidos_guardados,
             "partidos_omitidos": len(partidos_externos) - partidos_guardados,
-            "temporada_id": local_temporada_id,
+            "temporada_id":      local_temporada_id,
         }
 
     except HTTPException:
@@ -558,7 +562,7 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             db.rollback()
         raise
     except Exception as e:
-        logger.error(f"\n✗ ERROR EN IMPORTACIÓN: {e}")
+        logger.error(f"ERROR EN IMPORTACIÓN: {e}")
         if db:
             db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al importar liga: {str(e)}")
@@ -569,26 +573,21 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
 
 @app.post("/actualizar-liga/{liga_id}")
 def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
-    logger.info(f"{'='*50}")
-    logger.info(f"ACTUALIZANDO LIGA ID: {liga_id}")
-    logger.info(f"{'='*50}")
+    logger.info(f"{'='*50}\nACTUALIZANDO LIGA ID: {liga_id}\n{'='*50}")
 
     db = None
     try:
-        db = get_connection()
+        db     = get_connection()
         cursor = db.cursor()
 
-        cache = APIFootballCache()
-        equipos_externos = cache.get_equipos(liga_id, force_refresh=True)
+        cache             = APIFootballCache()
+        equipos_externos  = cache.get_equipos(liga_id, force_refresh=True)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=True)
+        liga_externa      = cache.get_ligas(force_refresh=False)
 
-        logger.info(f"Equipos obtenidos: {len(equipos_externos)}")
-        logger.info(f"Partidos obtenidos: {len(partidos_externos)}")
-
-        liga_externa = cache.get_ligas(force_refresh=False)
         liga_data = next((l for l in liga_externa if l.get("id") == liga_id), None)
         if not liga_data:
-            raise HTTPException(status_code=404, detail="Liga no encontrada")
+            raise HTTPException(status_code=404, detail="Liga no encontrada en football-data.org")
 
         cursor.execute(
             "SELECT id FROM ligas WHERE nombre = %s AND pais = %s",
@@ -616,7 +615,7 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
             local_temporada_id = temp_row["id"]
 
         equipos_guardados = 0
-        equipos_map = {}
+        equipos_map       = {}
 
         for eq in equipos_externos:
             if not eq.get("id") or not eq.get("name"):
@@ -640,16 +639,16 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
                 equipo_id = result["id"]
                 equipos_map[eq["id"]] = equipo_id
                 equipos_guardados += 1
-                logger.info(f"   ✓ Equipo guardado: {eq.get('name')} (ID local: {equipo_id})")
 
         partidos_guardados = 0
 
         for part in partidos_externos:
             try:
-                local_local_id = equipos_map.get(part.get("equipo_local_id"))
+                local_local_id     = equipos_map.get(part.get("equipo_local_id"))
                 local_visitante_id = equipos_map.get(part.get("equipo_visitante_id"))
                 if not local_local_id or not local_visitante_id:
                     continue
+
                 cursor.execute(
                     "SELECT id FROM partidos WHERE equipo_local = %s AND equipo_visitante = %s AND fecha = %s",
                     (local_local_id, local_visitante_id, part.get("fecha")),
@@ -657,30 +656,30 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
                 if not cursor.fetchone():
                     cursor.execute(
                         """INSERT INTO partidos
-                           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id)
+                           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante,
+                            arbitro, estadio, temporada_id)
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                         (
-                            part.get("fecha"), local_local_id, local_visitante_id,
-                            part.get("goles_local") or 0, part.get("goles_visitante") or 0,
-                            part.get("arbitro") or "Por definir", part.get("estadio") or "Por definir",
+                            part.get("fecha"),
+                            local_local_id,
+                            local_visitante_id,
+                            part.get("goles_local")     or 0,
+                            part.get("goles_visitante") or 0,
+                            "Por definir",
+                            "Por definir",
                             local_temporada_id,
                         ),
                     )
                     db.commit()
                     partidos_guardados += 1
-                    if partidos_guardados <= 10:
-                        logger.info(f"   ✓ Partido guardado: {part.get('goles_local')}-{part.get('goles_visitante')}")
             except Exception as e:
-                logger.error(f"   ✗ Error guardando partido {part.get('id')}: {e}")
-
-        logger.info(f"\nActualización completada: {equipos_guardados} equipos, {partidos_guardados} partidos")
+                logger.error(f"Error guardando partido {part.get('id')}: {e}")
 
         return {
-            "success": True,
-            "liga": liga_data.get("name"),
+            "success":        True,
+            "liga":           liga_data.get("name"),
             "equipos_nuevos": equipos_guardados,
             "partidos_nuevos": partidos_guardados,
-            "api_calls": 2,
         }
 
     except HTTPException:
@@ -688,7 +687,7 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
             db.rollback()
         raise
     except Exception as e:
-        logger.error(f"\n✗ ERROR: {e}")
+        logger.error(f"ERROR: {e}")
         if db:
             db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
