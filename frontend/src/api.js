@@ -1,10 +1,10 @@
+import { startGlobalLoading, stopGlobalLoading, setGlobalError, clearGlobalError } from './utils/apiState';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8003';
 const MAX_RETRIES = 1;
 const RETRY_DELAY = 1000;
-const REQUEST_TIMEOUT = 10000; // 10 seconds timeout
+const REQUEST_TIMEOUT = 10000;
 
-// Import global state functions
-import { startGlobalLoading, stopGlobalLoading, setGlobalError, clearGlobalError } from './utils/apiState';
 
 class RequestManager {
   constructor() {

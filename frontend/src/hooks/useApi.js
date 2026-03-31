@@ -1,3 +1,4 @@
+import React from 'react'  // 
 import { useState, useCallback } from 'react';
 
 // Global state for API loading and errors
