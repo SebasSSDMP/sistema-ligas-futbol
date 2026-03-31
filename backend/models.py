@@ -1,7 +1,8 @@
 from pydantic import BaseModel, validator
 from typing import Optional, Dict, Any
 from datetime import date, datetime
-
+from datetime import date, datetime
+from typing import Union
 
 class LigaBase(BaseModel):
     nombre: str
@@ -65,7 +66,7 @@ class Equipo(EquipoBase):
 
 
 class PartidoBase(BaseModel):
-    fecha: Optional[date] = None
+    fecha: Optional[Union[datetime, date]] = None  # ← acepta ambos
     equipo_local: int
     equipo_visitante: int
     goles_local: int = 0

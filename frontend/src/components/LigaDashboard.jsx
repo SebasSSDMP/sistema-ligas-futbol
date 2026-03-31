@@ -46,7 +46,7 @@ export default function LigaDashboard({ liga, onVolver }) {
   const tempRequestIdRef = useRef(0);
   const equiposRequestIdRef = useRef(0);
   const partidosRequestIdRef = useRef(0);
-  
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -254,7 +254,7 @@ export default function LigaDashboard({ liga, onVolver }) {
       setActionLoading(true);
       try {
         await crearPartido({
-          fecha: form.fecha.value || '2024-01-01 00:00',
+          fecha: form.fecha.value ? form.fecha.value.split('T')[0] : null, // ← solo la parte de fecha
           equipo_local: parseInt(form.equipo_local.value),
           equipo_visitante: parseInt(form.equipo_visitante.value),
           goles_local: parseInt(form.goles_local.value) || 0,
