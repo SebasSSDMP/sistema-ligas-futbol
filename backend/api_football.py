@@ -22,6 +22,7 @@ TTL_CONFIG = {
 
 class APIFootballCache:
     def __init__(self):
+        self._init_cache_tables()
         # Initialize cache tables only when explicitly called
         pass
     

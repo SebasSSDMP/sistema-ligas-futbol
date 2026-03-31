@@ -7,6 +7,7 @@ import os
 import logging
 from urllib.parse import urlparse
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 from models import (
     Liga, LigaCreate, LigaUpdate,
@@ -47,10 +48,17 @@ app.add_middleware(
 )
 
 # ✅ CORRECCIÓN: inicializar la DB al arrancar el servidor
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     init_db()
-    logger.info("Database initialized on startup")
+    cache = APIFootballCache()
+    cache._init_cache_tables()
+    logger.info("Database and cache tables initialized on startup")
+    yield
+    # Shutdown
+
+app = FastAPI(title="API Gestión de Ligas de Fútbol", version="1.0.0", lifespan=lifespan)
 
 # Health check endpoint
 @app.get("/health")
