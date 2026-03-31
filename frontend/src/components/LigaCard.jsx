@@ -1,3 +1,5 @@
+import React from 'react';
+
 export function LigaCard({ liga = {}, onSelect, onEdit, onDelete, isLoading }) {
   const handleDelete = (e) => {
     e.stopPropagation();

@@ -1,3 +1,5 @@
+import React from 'react';
+
 export function EquipoCard({ equipo = {}, onEdit, onDelete, disabled }) {
   const handleEdit = () => {
     if (onEdit && equipo?.id) onEdit(equipo);

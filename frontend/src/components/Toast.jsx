@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useEffect } from 'react';
 
 export function Toast({ message, type = 'success', onClose, duration = 4000 }) {

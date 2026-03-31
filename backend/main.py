@@ -31,6 +31,28 @@ if not API_KEY:
 else:
     logger.info("API_FOOTBALL_KEY is configured")
 
+# Health check endpoint
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# CORS middleware
+origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+# Filter out empty strings and strip whitespace
+origins = [origin.strip() for origin in origins if origin.strip()]
+
+# For development, if no origins specified, allow common localhost ports
+if not origins:
+    origins = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 def get_database_url():
     """Get database URL from environment variable"""
     database_url = os.getenv("DATABASE_URL")
