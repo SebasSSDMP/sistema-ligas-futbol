@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
 import psycopg2
 import psycopg2.extras
-import sqlite3
 import os
 import logging
 from urllib.parse import urlparse
@@ -17,7 +16,7 @@ from models import (
     EstadisticasLiga, RankingLiga,
     LigaCache, EquipoCache, PartidoCache, CacheStatus
 )
-from api_football import cache
+from api_football import APIFootballCache
 
 app = FastAPI(title="API Gestión de Ligas de Fútbol", version="1.0.0")
 
@@ -42,19 +41,10 @@ def get_database_url():
     return database_url
 
 def get_connection():
-    """Create a database connection (PostgreSQL or SQLite)"""
+    """Create a PostgreSQL connection"""
     database_url = get_database_url()
     
-    # Handle SQLite fallback for local development
-    if database_url.startswith("sqlite://"):
-        # Extract the file path from sqlite:///./data/futbol.db
-        db_path = database_url.replace("sqlite://", "")
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-    
-    # Handle PostgreSQL connection
-    # Parse the URL to handle different formats
+    # Handle postgres:// vs postgresql://
     if database_url.startswith("postgres://"):
         # Heroku-style URL
         database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -347,11 +337,13 @@ def ranking_ligas(db = Depends(get_db)):
 
 @app.get("/external/ligas", response_model=List[LigaCache])
 def obtener_ligas_externas(force_refresh: bool = Query(False, description="Forzar actualización desde API")):
+    cache = APIFootballCache()
     return cache.get_ligas(force_refresh=force_refresh)
 
 
 @app.get("/external/equipos/{liga_id}", response_model=List[EquipoCache])
 def obtener_equipos_externos(liga_id: int, force_refresh: bool = Query(False)):
+    cache = APIFootballCache()
     return cache.get_equipos(liga_id, force_refresh=force_refresh)
 
 
@@ -361,16 +353,19 @@ def obtener_partidos_externos(
     temporada: int = Query(2024, description="Temporada (año)"),
     force_refresh: bool = Query(False)
 ):
+    cache = APIFootballCache()
     return cache.get_partidos(liga_id, temporada=temporada, force_refresh=force_refresh)
 
 
 @app.get("/external/cache-status", response_model=CacheStatus)
 def estado_cache():
+    cache = APIFootballCache()
     return cache.get_cache_status()
 
 
 @app.post("/external/cache/clear")
 def limpiar_cache(tipo: Optional[str] = Query(None, description="Tipo: 'ligas', 'equipos', 'partidos' o null para todo")):
+    cache = APIFootballCache()
     cache.clear_cache(tipo if tipo else None)
     return {"message": f"Cache limpiado: {tipo or 'todo'}"}
 
@@ -388,6 +383,7 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         
         # 1. OBTENER DATOS DE LA API EXTERNA (desde cache)
         logger.info("1. Obteniendo datos de API externa...")
+        cache = APIFootballCache()
         liga_externa = cache.get_ligas(force_refresh=False)
         equipos_externos = cache.get_equipos(liga_id, force_refresh=False)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=False)
@@ -582,6 +578,7 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
         cursor = db.cursor()
         
         # Forzar refresh en cache para obtener datos frescos
+        cache = APIFootballCache()
         equipos_externos = cache.get_equipos(liga_id, force_refresh=True)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=True)
         
