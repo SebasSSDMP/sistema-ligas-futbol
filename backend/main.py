@@ -31,17 +31,10 @@ if not API_KEY:
 else:
     logger.info("API_FOOTBALL_KEY is configured")
 
-# Health check endpoint
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
 # CORS middleware
 origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-# Filter out empty strings and strip whitespace
 origins = [origin.strip() for origin in origins if origin.strip()]
 
-# For development, if no origins specified, allow common localhost ports
 if not origins:
     origins = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
 
@@ -53,11 +46,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ✅ CORRECCIÓN: inicializar la DB al arrancar el servidor
+@app.on_event("startup")
+def startup_event():
+    init_db()
+    logger.info("Database initialized on startup")
+
+# Health check endpoint
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 def get_database_url():
     """Get database URL from environment variable"""
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        # Fallback for local development - use SQLite if DATABASE_URL is not set
         logger.warning("DATABASE_URL not set, falling back to SQLite for local development")
         return "sqlite:///./data/futbol.db"
     return database_url
@@ -66,13 +69,10 @@ def get_connection():
     """Create a PostgreSQL connection"""
     database_url = get_database_url()
     
-    # Handle postgres:// vs postgresql://
     if database_url.startswith("postgres://"):
-        # Heroku-style URL
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     
     conn = psycopg2.connect(database_url)
-    # Return dict-like rows
     conn.cursor_factory = psycopg2.extras.RealDictCursor
     return conn
 
@@ -83,7 +83,6 @@ def init_db():
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Create ligas table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ligas (
                 id SERIAL PRIMARY KEY,
@@ -93,7 +92,6 @@ def init_db():
             )
         """)
         
-        # Create equipos table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS equipos (
                 id SERIAL PRIMARY KEY,
@@ -103,7 +101,6 @@ def init_db():
             )
         """)
         
-        # Create temporadas table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS temporadas (
                 id SERIAL PRIMARY KEY,
@@ -115,7 +112,6 @@ def init_db():
             )
         """)
         
-        # Create partidos table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS partidos (
                 id SERIAL PRIMARY KEY,
@@ -131,7 +127,6 @@ def init_db():
             )
         """)
         
-        # Create indexes for better performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_equipos_liga_id ON equipos(liga_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporadas_liga_id ON temporadas(liga_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_temporada_id ON partidos(temporada_id)")
@@ -327,13 +322,6 @@ def obtener_estadisticas(liga_id: int, db = Depends(get_db)):
         "partidos_mas_3_goles": 0,
         "partidos_menos_igual_3_goles": 0,
     }
-    return {
-        "liga_id": liga_id,
-        "promedio_goles": 0.0,
-        "total_partidos": 0,
-        "partidos_mas_3_goles": 0,
-        "partidos_menos_igual_3_goles": 0,
-    }
 
 
 @app.get("/ranking", response_model=List[RankingLiga])
@@ -403,14 +391,12 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         db = get_connection()
         cursor = db.cursor()
         
-        # 1. OBTENER DATOS DE LA API EXTERNA (desde cache)
         logger.info("1. Obteniendo datos de API externa...")
         cache = APIFootballCache()
         liga_externa = cache.get_ligas(force_refresh=False)
         equipos_externos = cache.get_equipos(liga_id, force_refresh=False)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=False)
         
-        # Buscar la liga específica
         liga_data = next((l for l in liga_externa if l.get("id") == liga_id), None)
         if not liga_data:
             raise HTTPException(status_code=404, detail=f"Liga {liga_id} no encontrada en API externa")
@@ -419,7 +405,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         logger.info(f"   Equipos disponibles: {len(equipos_externos)}")
         logger.info(f"   Partidos disponibles: {len(partidos_externos)}")
         
-        # 2. VERIFICAR SI LA LIGA YA EXISTE EN BASE DE DATOS LOCAL
         cursor.execute(
             "SELECT id FROM ligas WHERE nombre = %s AND pais = %s",
             (liga_data.get("name"), liga_data.get("country"))
@@ -430,7 +415,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             local_liga_id = liga_existente["id"]
             logger.info(f"\n2. Liga ya existe en BD local con ID: {local_liga_id}")
         else:
-            # 3. INSERTAR LIGA EN BASE DE DATOS
             logger.info("\n2. Insertando liga en base de datos...")
             cursor.execute(
                 "INSERT INTO ligas (nombre, pais) VALUES (%s, %s) RETURNING id",
@@ -441,7 +425,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             local_liga_id = result["id"]
             logger.info(f"   ✓ Liga guardada: ID {local_liga_id}")
         
-        # 4. CREAR O BUSCAR TEMPORADA
         cursor.execute(
             "SELECT id FROM temporadas WHERE liga_id = %s AND nombre = %s",
             (local_liga_id, str(temporada))
@@ -461,16 +444,14 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             local_temporada_id = result["id"]
             logger.info(f"   ✓ Temporada creada: ID {local_temporada_id}")
         
-        # 5. MAPEAR Y GUARDAR EQUIPOS
         logger.info("\n3. Guardando equipos...")
         equipos_guardados = 0
-        equipos_map = {}  # Mapeo: external_id -> local_id
+        equipos_map = {}
         
         for eq in equipos_externos:
             if not eq.get("id") or not eq.get("name"):
                 continue
             
-            # Verificar si el equipo ya existe
             cursor.execute(
                 "SELECT id FROM equipos WHERE nombre = %s AND liga_id = %s",
                 (eq.get("name"), local_liga_id)
@@ -495,7 +476,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         
         logger.info(f"   Total equipos nuevos guardados: {equipos_guardados}")
         
-        # 6. MAPEAR Y GUARDAR PARTIDOS
         logger.info("\n4. Guardando partidos...")
         partidos_guardados = 0
         partidos_error = 0
@@ -505,7 +485,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                 if not part.get("id"):
                     continue
                 
-                # Verificar si el partido ya existe (por fecha y equipos)
                 local_local_id = equipos_map.get(part.get("equipo_local_id"))
                 local_visitante_id = equipos_map.get(part.get("equipo_visitante_id"))
                 
@@ -513,7 +492,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                     logger.warning(f"   Partido {part.get('id')}: Equipos no encontrados en mapeo")
                     continue
                 
-                # Verificar si ya existe
                 cursor.execute(
                     """SELECT id FROM partidos WHERE 
                        equipo_local = %s AND equipo_visitante = %s AND fecha = %s""",
@@ -525,7 +503,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                     logger.warning(f"   Partido {part.get('id')} ya existe, omitiendo")
                     continue
                 
-                # Insertar partido
                 cursor.execute(
                     """INSERT INTO partidos 
                        (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id) 
@@ -542,11 +519,10 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                     )
                 )
                 db.commit()
-                local_part_id = cursor.lastrowid
                 partidos_guardados += 1
                 
                 if partidos_guardados <= 10:
-                    logger.info(f"   ✓ Partido {local_part_id}: {part.get('goles_local')}-{part.get('goles_visitante')} (API ID: {part.get('id')})")
+                    logger.info(f"   ✓ Partido guardado: {part.get('goles_local')}-{part.get('goles_visitante')} (API ID: {part.get('id')})")
                     
             except Exception as e:
                 partidos_error += 1
@@ -556,7 +532,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         if partidos_error > 0:
             logger.warning(f"   Partidos con errores: {partidos_error}")
         
-        # 7. RESPUESTA FINAL
         logger.info(f"{'='*50}")
         logger.info(f"IMPORTACIÓN COMPLETADA")
         logger.info(f"   Liga: {liga_data.get('name')}")
@@ -599,7 +574,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
         db = get_connection()
         cursor = db.cursor()
         
-        # Forzar refresh en cache para obtener datos frescos
         cache = APIFootballCache()
         equipos_externos = cache.get_equipos(liga_id, force_refresh=True)
         partidos_externos = cache.get_partidos(liga_id, temporada=temporada, force_refresh=True)
@@ -607,7 +581,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
         logger.info(f"Equipos obtenidos: {len(equipos_externos)}")
         logger.info(f"Partidos obtenidos: {len(partidos_externos)}")
         
-        # Buscar liga local
         liga_externa = cache.get_ligas(force_refresh=False)
         liga_data = next((l for l in liga_externa if l.get("id") == liga_id), None)
         
@@ -625,7 +598,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
         
         local_liga_id = liga_row["id"]
         
-        # Buscar o crear temporada
         cursor.execute(
             "SELECT id FROM temporadas WHERE liga_id = %s AND nombre = %s",
             (local_liga_id, str(temporada))
@@ -642,7 +614,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
         else:
             local_temporada_id = temp_row["id"]
         
-        # Actualizar equipos
         equipos_guardados = 0
         equipos_map = {}
         
@@ -672,7 +643,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
                 equipos_guardados += 1
                 logger.info(f"   ✓ Equipo guardado: {eq.get('name')} (ID local: {equipo_id})")
         
-        # Actualizar partidos
         partidos_guardados = 0
         
         for part in partidos_externos:
@@ -738,7 +708,6 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
 
 
 if __name__ == "__main__":
-    # Initialize database tables
     init_db()
     
     import uvicorn
