@@ -43,8 +43,10 @@ export default function LigaDashboard({ liga, onVolver }) {
 
   const [toast, setToast] = useState(null);
   const isMountedRef = useRef(true);
-  const requestIdRef = useRef(0);
-
+  const tempRequestIdRef = useRef(0);
+  const equiposRequestIdRef = useRef(0);
+  const partidosRequestIdRef = useRef(0);
+  
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -67,26 +69,18 @@ export default function LigaDashboard({ liga, onVolver }) {
 
   const cargarTemporadas = useCallback(async () => {
     if (!liga?.id || !isMountedRef.current) return;
-
-    const requestId = ++requestIdRef.current;
-    console.log(`[LigaDashboard] Cargando temporadas, requestId: ${requestId}`);
-
+    const requestId = ++tempRequestIdRef.current;  // ← su propio ref
     setLoadingTemporadas(true);
     setErrorTemporadas(null);
-
     try {
       const data = await obtenerTemporadas(liga.id, `temp-${liga.id}-${requestId}`);
-
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-
+      if (!isMountedRef.current || requestId !== tempRequestIdRef.current) return;
       setTemporadas(Array.isArray(data) ? data : []);
-      console.log(`[LigaDashboard] Temporadas: ${Array.isArray(data) ? data.length : 0}`);
     } catch (error) {
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-      console.error(`[LigaDashboard] Error temporadas:`, error);
+      if (!isMountedRef.current || requestId !== tempRequestIdRef.current) return;
       setErrorTemporadas(error.message || 'Error al cargar temporadas');
     } finally {
-      if (isMountedRef.current && requestId === requestIdRef.current) {
+      if (isMountedRef.current && requestId === tempRequestIdRef.current) {
         setLoadingTemporadas(false);
       }
     }
@@ -94,26 +88,18 @@ export default function LigaDashboard({ liga, onVolver }) {
 
   const cargarEquipos = useCallback(async () => {
     if (!liga?.id || !isMountedRef.current) return;
-
-    const requestId = ++requestIdRef.current;
-    console.log(`[LigaDashboard] Cargando equipos, requestId: ${requestId}`);
-
+    const requestId = ++equiposRequestIdRef.current;  // ← su propio ref
     setLoadingEquipos(true);
     setErrorEquipos(null);
-
     try {
       const data = await obtenerEquipos(liga.id, `equipos-${liga.id}-${requestId}`);
-
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-
+      if (!isMountedRef.current || requestId !== equiposRequestIdRef.current) return;
       setEquipos(Array.isArray(data) ? data : []);
-      console.log(`[LigaDashboard] Equipos: ${Array.isArray(data) ? data.length : 0}`);
     } catch (error) {
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-      console.error(`[LigaDashboard] Error equipos:`, error);
+      if (!isMountedRef.current || requestId !== equiposRequestIdRef.current) return;
       setErrorEquipos(error.message || 'Error al cargar equipos');
     } finally {
-      if (isMountedRef.current && requestId === requestIdRef.current) {
+      if (isMountedRef.current && requestId === equiposRequestIdRef.current) {
         setLoadingEquipos(false);
       }
     }
@@ -121,26 +107,18 @@ export default function LigaDashboard({ liga, onVolver }) {
 
   const cargarPartidos = useCallback(async () => {
     if (!temporadaSeleccionada?.id || !isMountedRef.current) return;
-
-    const requestId = ++requestIdRef.current;
-    console.log(`[LigaDashboard] Cargando partidos, requestId: ${requestId}`);
-
+    const requestId = ++partidosRequestIdRef.current;  // ← su propio ref
     setLoadingPartidos(true);
     setErrorPartidos(null);
-
     try {
       const data = await obtenerPartidos(temporadaSeleccionada.id, `partidos-${temporadaSeleccionada.id}-${requestId}`);
-
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-
+      if (!isMountedRef.current || requestId !== partidosRequestIdRef.current) return;
       setPartidos(Array.isArray(data) ? data : []);
-      console.log(`[LigaDashboard] Partidos: ${Array.isArray(data) ? data.length : 0}`);
     } catch (error) {
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-      console.error(`[LigaDashboard] Error partidos:`, error);
+      if (!isMountedRef.current || requestId !== partidosRequestIdRef.current) return;
       setErrorPartidos(error.message || 'Error al cargar partidos');
     } finally {
-      if (isMountedRef.current && requestId === requestIdRef.current) {
+      if (isMountedRef.current && requestId === partidosRequestIdRef.current) {
         setLoadingPartidos(false);
       }
     }

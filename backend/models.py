@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import date, datetime
 
 
 class LigaBase(BaseModel):
@@ -26,8 +26,8 @@ class Liga(LigaBase):
 
 class TemporadaBase(BaseModel):
     nombre: str
-    fecha_inicio: Optional[str] = None
-    fecha_fin: Optional[str] = None
+    fecha_inicio: Optional[date] = None
+    fecha_fin: Optional[date] = None
     liga_id: int
 
 
@@ -40,6 +40,7 @@ class Temporada(TemporadaBase):
 
     class Config:
         from_attributes = True
+        json_encoders = {date: lambda v: v.isoformat() if v else None}
 
 
 class EquipoBase(BaseModel):
@@ -64,7 +65,7 @@ class Equipo(EquipoBase):
 
 
 class PartidoBase(BaseModel):
-    fecha: str
+    fecha: Optional[date] = None
     equipo_local: int
     equipo_visitante: int
     goles_local: int = 0
@@ -83,6 +84,7 @@ class Partido(PartidoBase):
 
     class Config:
         from_attributes = True
+        json_encoders = {date: lambda v: v.isoformat() if v else None}
 
 
 class EstadisticasLiga(BaseModel):
