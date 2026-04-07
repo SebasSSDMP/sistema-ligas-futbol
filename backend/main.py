@@ -310,6 +310,23 @@ def crear_partido(partido: PartidoCreate, db=Depends(get_db)):
     return dict(cursor.fetchone())
 
 
+@app.put("/partidos/{partido_id}", response_model=Partido)
+def actualizar_partido(partido_id: int, partido: PartidoUpdate, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """UPDATE partidos
+           SET goles_local = %s, goles_visitante = %s, fecha = %s
+           WHERE id = %s""",
+        (partido.goles_local, partido.goles_visitante, partido.fecha, partido_id)
+    )
+    db.commit()
+    cursor.execute("SELECT * FROM partidos WHERE id = %s", (partido_id,))
+    result = cursor.fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="Partido no encontrado")
+    return dict(result)
+
+
 # ESTADÍSTICAS
 @app.get("/ligas/{liga_id}/estadisticas", response_model=EstadisticasLiga)
 def obtener_estadisticas(liga_id: int, db=Depends(get_db)):

@@ -257,6 +257,14 @@ export async function crearPartido(data) {
   });
 }
 
+export async function actualizarPartido(id, data) {
+  console.log('[API] Updating partido:', id, data);
+  return requestManager.request(`${API_URL}/partidos/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 // ESTADISTICAS
 export async function obtenerEstadisticas(ligaId, requestId = null) {
   if (!ligaId) {

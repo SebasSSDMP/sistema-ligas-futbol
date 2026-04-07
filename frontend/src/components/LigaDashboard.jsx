@@ -9,6 +9,7 @@ import {
   obtenerPartidos,
   crearPartido,
   obtenerEstadisticas,
+  actualizarPartido,
   cancelAllRequests,
 } from '../api';
 import Estadisticas from './Estadisticas';
@@ -30,6 +31,12 @@ export default function LigaDashboard({ liga, onVolver }) {
   const [errorTemporadas, setErrorTemporadas] = useState(null);
   const [errorEquipos, setErrorEquipos] = useState(null);
   const [errorPartidos, setErrorPartidos] = useState(null);
+  const [editandoPartidoId, setEditandoPartidoId] = useState(null);
+  const [partidoEditado, setPartidoEditado] = useState({
+    goles_local: 0,
+    goles_visitante: 0,
+    fecha: null
+  });
 
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -631,31 +638,125 @@ export default function LigaDashboard({ liga, onVolver }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {partidos.map((partido) => (
-                <div key={partido.id} className="bg-dark-card rounded-xl p-4 border border-dark-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-400">
-                        {partido.fecha ? new Date(partido.fecha).toLocaleDateString() : 'Sin fecha'}
-                      </span>
-                      <span className="font-bold text-white">{getNombreEquipo(partido.equipo_local)}</span>
-                    </div>
-                    <div className="bg-dark-bg px-4 py-2 rounded-xl flex items-center gap-4">
-                      <span className="text-2xl font-bold text-accent-green">{partido.goles_local}</span>
-                      <span className="text-gray-400">-</span>
-                      <span className="text-2xl font-bold text-accent-orange">{partido.goles_visitante}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="font-bold text-white">{getNombreEquipo(partido.equipo_visitante)}</span>
-                    </div>
-                  </div>
-                  {partido.arbitro && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      Arbitro: {partido.arbitro} | Estadio: {partido.estadio}
-                    </p>
-                  )}
-                </div>
-              ))}
+{partidos.map((partido) => (
+  <div key={partido.id} className="bg-dark-card rounded-xl p-4 border border-dark-border">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-4">
+        <span className="text-sm text-gray-400">
+          {partido.fecha ? new Date(partido.fecha).toLocaleDateString() : 'Sin fecha'}
+        </span>
+        <span className="font-bold text-white">{getNombreEquipo(partido.equipo_local)}</span>
+      </div>
+      <div className="bg-dark-bg px-4 py-2 rounded-xl flex items-center gap-4">
+        <span className="text-2xl font-bold text-accent-green">{partido.goles_local}</span>
+        <span className="text-gray-400">-</span>
+        <span className="text-2xl font-bold text-accent-orange">{partido.goles_visitante}</span>
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="font-bold text-white">{getNombreEquipo(partido.equipo_visitante)}</span>
+      </div>
+    </div>
+    {partido.arbitro && (
+      <p className="text-xs text-gray-500 mt-2">
+        Arbitro: {partido.arbitro} | Estadio: {partido.estadio}
+      </p>
+    )}
+    {editandoPartidoId === partido.id ? (
+      <div className="mt-4 pt-4 border-t border-dark-border">
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          handleGuardarPartido(partido.id);
+        }} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Goles Local</label>
+              <input
+                type="number"
+                value={partidoEditado.goles_local}
+                onChange={(e) => {
+                  setPartidoEditado({
+                    ...partidoEditado,
+                    goles_local: parseInt(e.target.value) || 0
+                  });
+                }}
+                min="0"
+                className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent-blue"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Goles Visitante</label>
+              <input
+                type="number"
+                value={partidoEditado.goles_visitante}
+                onChange={(e) => {
+                  setPartidoEditado({
+                    ...partidoEditado,
+                    goles_visitante: parseInt(e.target.value) || 0
+                  });
+                }}
+                min="0"
+                className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent-blue"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Fecha</label>
+            <input
+              type="date"
+              value={partidoEditado.fecha ? new Date(partidoEditado.fecha).toISOString().split('T')[0] : ''}
+              onChange={(e) => {
+                setPartidoEditado({
+                  ...partidoEditado,
+                  fecha: e.target.value || null
+                });
+              }}
+              className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent-blue"
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setEditandoPartidoId(null);
+                setPartidoEditado({
+                  goles_local: 0,
+                  goles_visitante: 0,
+                  fecha: null
+                });
+              }}
+              className="px-4 py-2 bg-dark-border text-white rounded-md hover:bg-dark-card"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loadingPartidos}
+              className="px-4 py-2 bg-accent-green text-dark-bg rounded-md hover:bg-accent-green/90 disabled:opacity-50"
+            >
+              {loadingPartidos ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    ) : (
+      <div className="mt-3 flex items-end">
+        <button
+          onClick={() => {
+            setEditandoPartidoId(partido.id);
+            setPartidoEditado({
+              goles_local: partido.goles_local,
+              goles_visitante: partido.goles_visitante,
+              fecha: partido.fecha
+            });
+          }}
+          className="text-xs font-medium text-accent-blue hover:text-accent-blue/80 px-2 py-1 rounded hover:bg-dark-border"
+        >
+          Editar
+        </button>
+      </div>
+    )}
+  </div>
+))}
               {partidos.length === 0 && temporadaSeleccionada && (
                 <div className="text-center py-8">
                   <p className="text-gray-400">No hay partidos en esta temporada</p>

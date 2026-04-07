@@ -70,8 +70,6 @@ class PartidoBase(BaseModel):
     equipo_visitante: int
     goles_local: int = 0
     goles_visitante: int = 0
-    arbitro: Optional[str] = None
-    estadio: Optional[str] = None
     temporada_id: int
 
 
@@ -85,6 +83,12 @@ class Partido(PartidoBase):
     class Config:
         from_attributes = True
         json_encoders = {date: lambda v: v.isoformat() if v else None}
+
+
+class PartidoUpdate(BaseModel):
+    goles_local: int
+    goles_visitante: int
+    fecha: Optional[Union[datetime, date]] = None
 
 
 class EstadisticasLiga(BaseModel):
