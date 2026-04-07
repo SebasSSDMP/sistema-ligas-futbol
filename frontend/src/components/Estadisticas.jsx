@@ -9,186 +9,91 @@ export default function Estadisticas({ ligaId }) {
   const [estadisticas, setEstadisticas] = useState(null);
   const [ranking, setRanking] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  const isMountedRef = useRef(true);
   const requestIdRef = useRef(0);
-  const abortControllerRef = useRef(null);
 
-  // 🔒 Control de montaje
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  // 🚀 Fetch principal
   useEffect(() => {
     if (!ligaId) return;
 
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = new AbortController();
-
     const requestId = ++requestIdRef.current;
 
-    setLoading(true);
-    setError(null);
-
     const cargar = async () => {
-      try {
-        const [stats, rank] = await Promise.all([
-          obtenerEstadisticasConFiltro(ligaId, null, `stats-${ligaId}-${requestId}`),
-          obtenerRanking(`ranking-${requestId}`),
-        ]);
+      console.log("🚀 CARGANDO ESTADISTICAS...");
 
-        if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+      const [stats, rank] = await Promise.all([
+        obtenerEstadisticasConFiltro(ligaId),
+        obtenerRanking()
+      ]);
 
-        console.log("STATS:", stats); // 🔍 debug útil
+      console.log("📊 STATS:", stats);
+      console.log("📊 RANK:", rank);
 
-        setEstadisticas(stats || {});
-        setRanking(Array.isArray(rank) ? rank : []);
-
-      } catch (err) {
-        if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-        if (err?.name === 'AbortError') return;
-
-        setError(err.message || 'Error al cargar estadísticas');
-      } finally {
-        if (isMountedRef.current && requestId === requestIdRef.current) {
-          setLoading(false);
-        }
-      }
+      setEstadisticas(stats || {});
+      setRanking(Array.isArray(rank) ? rank : []);
+      setLoading(false);
     };
 
     cargar();
   }, [ligaId]);
 
-  // 🧠 Estado inicial
-  const isInitialLoad = loading && estadisticas === null;
-
-  if (isInitialLoad) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-blue border-t-transparent"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-400 mb-4">{error}</p>
-        <button
-          onClick={() => {
-            setError(null);
-            setLoading(true);
-            setEstadisticas(null);
-          }}
-          className="bg-accent-blue text-dark-bg px-4 py-2 rounded-lg"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
-
-  // 📊 Datos seguros
-  const umbral = estadisticas?.umbral_goles || 3;
+  // 🔥 DEBUG VISUAL
+  console.log("🎯 RENDER");
+  console.log("datos estadisticas:", estadisticas);
 
   const datosGoles = [
     {
-      name: `≤ ${umbral} goles`,
+      name: "Menos de 3",
       value: estadisticas?.partidos_menos_igual_3_goles ?? 0,
-      color: '#10b981'
     },
     {
-      name: `> ${umbral} goles`,
+      name: "Más de 3",
       value: estadisticas?.partidos_mas_3_goles ?? 0,
-      color: '#f59e0b'
     }
-  ].filter(d => d.value > 0);
+  ];
 
-  const datosRanking = (ranking || []).map((liga) => ({
-    nombre: (liga.nombre || 'Sin nombre').slice(0, 15),
-    promedio: liga.promedio_goles || 0,
+  const datosRanking = (ranking || []).map(l => ({
+    nombre: l.nombre,
+    promedio: l.promedio_goles
   }));
 
+  console.log("📈 datosGoles:", datosGoles);
+  console.log("📈 datosRanking:", datosRanking);
+
   return (
-    <div style={{ position: 'relative', opacity: loading ? 0.6 : 1 }}>
+    <div style={{ padding: 20 }}>
 
-      {/* Spinner overlay */}
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="animate-spin rounded-full h-10 w-10 border-4 border-accent-blue border-t-transparent"></div>
-        </div>
-      )}
+      <h2 style={{ color: "white" }}>DEBUG GRÁFICAS</h2>
 
-      <h3 className="text-2xl font-bold text-white mb-6">Estadísticas</h3>
+      {/* 🔥 DEBUG VISUAL */}
+      <pre style={{ color: "lime", fontSize: 12 }}>
+        {JSON.stringify({ datosGoles, datosRanking }, null, 2)}
+      </pre>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <Card title="Total Partidos" value={estadisticas?.total_partidos || 0} />
-        <Card title="Promedio Goles" value={(estadisticas?.promedio_goles || 0).toFixed(2)} />
-        <Card title={`Partidos >${umbral}`} value={estadisticas?.partidos_mas_3_goles || 0} />
-        <Card title={`Partidos ≤${umbral}`} value={estadisticas?.partidos_menos_igual_3_goles || 0} />
+      {/* PIE */}
+      <div style={{ width: "100%", height: 300, background: "#111" }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={datosGoles} dataKey="value" fill="#8884d8">
+              {datosGoles.map((entry, i) => (
+                <Cell key={i} fill={i === 0 ? "#10b981" : "#f59e0b"} />
+              ))}
+            </Pie>
+            <Tooltip />
+          </PieChart>
+        </ResponsiveContainer>
       </div>
 
-      {/* GRÁFICAS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* PIE */}
-        <div className="bg-dark-card p-6 rounded-2xl">
-          <h4 className="text-white mb-4">Distribución de Goles</h4>
-
-          <div style={{ width: "100%", height: 300 }}>
-            {datosGoles.length === 0 ? (
-              <div className="text-gray-400 text-center py-10">
-                No hay datos
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie data={datosGoles} dataKey="value">
-                    {datosGoles.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* BAR */}
-        <div className="bg-dark-card p-6 rounded-2xl">
-          <h4 className="text-white mb-4">Ranking</h4>
-
-          <div style={{ width: "100%", height: 300 }}>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={datosRanking}>
-                <XAxis dataKey="nombre" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="promedio" fill="#38bdf8" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+      {/* BAR */}
+      <div style={{ width: "100%", height: 300, background: "#222", marginTop: 40 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={datosRanking}>
+            <XAxis dataKey="nombre" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="promedio" fill="#38bdf8" />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-    </div>
-  );
-}
-
-// 🔥 componente reutilizable
-function Card({ title, value }) {
-  return (
-    <div className="bg-dark-card p-5 rounded-xl">
-      <p className="text-gray-400 text-sm">{title}</p>
-      <p className="text-2xl font-bold text-white">{value}</p>
     </div>
   );
 }
