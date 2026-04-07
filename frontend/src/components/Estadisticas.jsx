@@ -192,5 +192,3 @@ function Card({ title, value }) {
     </div>
   );
 }
-console.log("datosGoles:", datosGoles);
-console.log("datosRanking:", datosRanking);
