@@ -52,7 +52,9 @@ export default function Estadisticas({ estadisticasExternas, rankingExterno = []
 
   const datosRanking = (rankingExterno || []).map(l => ({
     nombre: l.nombre,
-    promedio: Number(l.promedio_goles || 0)
+    promedio: l.partidos_jugados > 0
+      ? (l.goles_favor / l.partidos_jugados).toFixed(2)
+      : 0
   }));
 
   console.log("📈 datosGoles:", datosGoles);
