@@ -142,13 +142,13 @@ export default function Estadisticas({ ligaId }) {
         <div className="bg-dark-card p-6 rounded-2xl">
           <h4 className="text-white mb-4">Distribución de Goles</h4>
 
-          <div className="h-64">
+          <div style={{ width: "100%", height: 300 }}>
             {datosGoles.length === 0 ? (
               <div className="text-gray-400 text-center py-10">
                 No hay datos
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie data={datosGoles} dataKey="value">
                     {datosGoles.map((entry, i) => (
@@ -167,8 +167,8 @@ export default function Estadisticas({ ligaId }) {
         <div className="bg-dark-card p-6 rounded-2xl">
           <h4 className="text-white mb-4">Ranking</h4>
 
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ width: "100%", height: 300 }}>
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart data={datosRanking}>
                 <XAxis dataKey="nombre" />
                 <YAxis />
@@ -192,3 +192,5 @@ function Card({ title, value }) {
     </div>
   );
 }
+console.log("datosGoles:", datosGoles);
+console.log("datosRanking:", datosRanking);
