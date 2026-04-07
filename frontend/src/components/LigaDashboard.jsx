@@ -163,7 +163,9 @@ export default function LigaDashboard({ liga, onVolver }) {
     try {
       const data = await obtenerRankingLiga(liga.id);
       if (!isMountedRef.current) return;
-      setRankingEquipos(Array.isArray(data) ? data : []);
+      if (Array.isArray(data) && data.length > 0) {
+        setRankingEquipos(data);
+      }
     } catch (error) {
       if (!isMountedRef.current) return;
       showToast('Error al cargar ranking', 'error');
