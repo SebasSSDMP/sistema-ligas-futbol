@@ -10,9 +10,13 @@ class RequestManager {
   constructor() {
     this.controllers = new Map();
     this.pendingRequests = new Set();
-    // Cache for deduplication: {url: {promise, timestamp}}
+    // Cache for deduplication: {url: {data, timestamp}}
+    // FIX: guardamos el dato resuelto, NO la Promise.
+    // Guardar una Promise cacheada hacía que requests con distintos
+    // requestId recibieran la misma Promise instantáneamente, adelantando
+    // al fetch real y rompiendo los guards de stale-request en los componentes.
     this.requestCache = new Map();
-    this.CACHE_DURATION_MS = 5000; // 5 seconds cache for identical requests
+    this.CACHE_DURATION_MS = 5000;
   }
 
   generateRequestId(endpoint) {
@@ -34,128 +38,124 @@ class RequestManager {
     this.pendingRequests.clear();
   }
 
-    async request(url, options = {}, requestId = null) {
-        // Check cache for duplicate requests (same URL and method)
-        const cacheKey = `${url}:${options.method || 'GET'}`;
-        const cached = this.requestCache.get(cacheKey);
-        if (cached && (Date.now() - cached.timestamp < this.CACHE_DURATION_MS)) {
-            console.log(`[API] Returning cached response for ${url}`);
-            return cached.promise;
+  async request(url, options = {}, requestId = null) {
+    // FIX: el caché devuelve el dato directamente (no una Promise),
+    // así el componente lo recibe de forma normal y los guards funcionan.
+    const cacheKey = `${url}:${options.method || 'GET'}`;
+    const cached = this.requestCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < this.CACHE_DURATION_MS)) {
+      console.log(`[API] Returning cached response for ${url}`);
+      return cached.data;
+    }
+
+    const controller = new AbortController();
+    const id = requestId || this.generateRequestId(url);
+    this.controllers.set(id, controller);
+    this.pendingRequests.add(id);
+
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, REQUEST_TIMEOUT);
+
+    let lastError = null;
+
+    try {
+      startGlobalLoading();
+      clearGlobalError();
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+          console.log(`[API] Retry attempt ${attempt} for ${url}`);
         }
-
-        const controller = new AbortController();
-        const id = requestId || this.generateRequestId(url);
-        this.controllers.set(id, controller);
-        this.pendingRequests.add(id);
-
-        // Set up timeout
-        const timeoutId = setTimeout(() => {
-            controller.abort();
-        }, REQUEST_TIMEOUT);
-
-        let lastError = null;
 
         try {
-            // Start global loading indicator
-            startGlobalLoading();
-            clearGlobalError();
+          console.log(`[API] Request ${attempt === 0 ? 'started' : 'retry'}: ${url}`);
 
-            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-                if (attempt > 0) {
-                    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-                    console.log(`[API] Retry attempt ${attempt} for ${url}`);
-                }
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              ...options.headers,
+            },
+          });
 
-                try {
-                    console.log(`[API] Request ${attempt === 0 ? 'started' : 'retry'}: ${url}`);
-
-                    const response = await fetch(url, {
-                        ...options,
-                        signal: controller.signal,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...options.headers,
-                        },
-                    });
-
-                    if (!response.ok) {
-                        let errorDetail = `HTTP ${response.status}`;
-                        try {
-                            const errorData = await response.json();
-                            errorDetail = errorData.detail || errorDetail;
-                        } catch {
-                            // ignore JSON parse errors
-                        }
-                        throw new Error(errorDetail);
-                    }
-
-                    const text = await response.text();
-                    const data = text ? JSON.parse(text) : null;
-
-                    console.log(`[API] Success: ${url}`, data ? `(${Array.isArray(data) ? data.length + ' items' : 'object'})` : '(empty)');
-
-                    // Cache successful response
-                    const cachePromise = Promise.resolve(data);
-                    this.requestCache.set(cacheKey, {
-                        promise: cachePromise,
-                        timestamp: Date.now()
-                    });
-
-                    // Clean old cache entries
-                    this._cleanCache();
-
-                    this.controllers.delete(id);
-                    this.pendingRequests.delete(id);
-                    clearTimeout(timeoutId);
-                    stopGlobalLoading();
-
-                    return data;
-                } catch (error) {
-                    lastError = error;
-
-                    if (error.name === 'AbortError') {
-                        console.log(`[API] Aborted: ${url}`);
-                        return null;
-                    }
-
-                    console.error(`[API] Error${attempt < MAX_RETRIES ? ' (will retry)' : ''}: ${url}`, error.message);
-
-                    if (attempt === MAX_RETRIES) {
-                        break;
-                    }
-                }
+          if (!response.ok) {
+            let errorDetail = `HTTP ${response.status}`;
+            try {
+              const errorData = await response.json();
+              errorDetail = errorData.detail || errorDetail;
+            } catch {
+              // ignore JSON parse errors
             }
-        } finally {
-            this.controllers.delete(id);
-            this.pendingRequests.delete(id);
-            clearTimeout(timeoutId);
-            stopGlobalLoading();
-        }
+            throw new Error(errorDetail);
+          }
 
-        // Set global error if we have one
-        if (lastError) {
-            setGlobalError(lastError.message);
-        }
+          const text = await response.text();
+          const data = text ? JSON.parse(text) : null;
 
-        throw lastError;
+          console.log(`[API] Success: ${url}`, data ? `(${Array.isArray(data) ? data.length + ' items' : 'object'})` : '(empty)');
+
+          // FIX: guardamos el dato, no la Promise
+          this.requestCache.set(cacheKey, { data, timestamp: Date.now() });
+          this._cleanCache();
+
+          this.controllers.delete(id);
+          this.pendingRequests.delete(id);
+          clearTimeout(timeoutId);
+          stopGlobalLoading();
+
+          return data;
+        } catch (error) {
+          lastError = error;
+
+          if (error.name === 'AbortError') {
+            console.log(`[API] Aborted: ${url}`);
+            return null;
+          }
+
+          console.error(`[API] Error${attempt < MAX_RETRIES ? ' (will retry)' : ''}: ${url}`, error.message);
+
+          if (attempt === MAX_RETRIES) {
+            break;
+          }
+        }
+      }
+    } finally {
+      this.controllers.delete(id);
+      this.pendingRequests.delete(id);
+      clearTimeout(timeoutId);
+      stopGlobalLoading();
     }
 
-    _cleanCache() {
-        const now = Date.now();
-        for (const [key, value] of this.requestCache.entries()) {
-            if (now - value.timestamp > this.CACHE_DURATION_MS * 2) {
-                this.requestCache.delete(key);
-            }
-        }
+    if (lastError) {
+      setGlobalError(lastError.message);
     }
+
+    throw lastError;
+  }
+
+  _cleanCache() {
+    const now = Date.now();
+    for (const [key, value] of this.requestCache.entries()) {
+      if (now - value.timestamp > this.CACHE_DURATION_MS * 2) {
+        this.requestCache.delete(key);
+      }
+    }
+  }
 }
 
 const requestManager = new RequestManager();
 
 // LIGAS
+// FIX: eliminado el cancelRequest() preventivo de TODAS las funciones.
+// El patrón anterior era: generar un ID → cancelar ese ID (que no existe aún)
+// → lanzar el request con ese ID. Era inofensivo en solitario, pero cuando
+// dos llamadas rápidas compartían un ID predecible (mismo ligaId), la segunda
+// cancelaba el controller de la primera antes de que terminara.
 export async function obtenerLigas(requestId = null) {
   const id = requestId || `ligas-${Date.now()}`;
-  requestManager.cancelRequest(id);
   return requestManager.request(`${API_URL}/ligas`, {}, id);
 }
 
@@ -189,7 +189,6 @@ export async function obtenerTemporadas(ligaId, requestId = null) {
     return [];
   }
   const id = requestId || `temp-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching temporadas for liga:', ligaId);
   return requestManager.request(`${API_URL}/ligas/${ligaId}/temporadas`, {}, id);
 }
@@ -209,7 +208,6 @@ export async function obtenerEquipos(ligaId, requestId = null) {
     return [];
   }
   const id = requestId || `equipos-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching equipos for liga:', ligaId);
   return requestManager.request(`${API_URL}/ligas/${ligaId}/equipos`, {}, id);
 }
@@ -244,7 +242,6 @@ export async function obtenerPartidos(temporadaId, requestId = null) {
     return [];
   }
   const id = requestId || `partidos-${temporadaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching partidos for temporada:', temporadaId);
   return requestManager.request(`${API_URL}/temporadas/${temporadaId}/partidos`, {}, id);
 }
@@ -272,7 +269,6 @@ export async function obtenerEstadisticas(ligaId, requestId = null) {
     return {};
   }
   const id = requestId || `stats-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching estadisticas for liga:', ligaId);
   const result = await requestManager.request(`${API_URL}/ligas/${ligaId}/estadisticas`, {}, id);
   return result || {};
@@ -280,7 +276,6 @@ export async function obtenerEstadisticas(ligaId, requestId = null) {
 
 export async function obtenerRanking(requestId = null) {
   const id = requestId || `ranking-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching ranking');
   const result = await requestManager.request(`${API_URL}/ranking`, {}, id);
   return Array.isArray(result) ? result : [];
@@ -297,7 +292,6 @@ export async function resetDatabase() {
 // EXTERNAL API (API-Football with caching)
 export async function obtenerLigasExternas(forceRefresh = false, requestId = null) {
   const id = requestId || `external-ligas-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching external ligas, forceRefresh:', forceRefresh);
   const result = await requestManager.request(
     `${API_URL}/external/ligas?force_refresh=${forceRefresh}`,
@@ -313,7 +307,6 @@ export async function obtenerEquiposExternos(ligaId, forceRefresh = false, reque
     return [];
   }
   const id = requestId || `external-equipos-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching external equipos for liga:', ligaId);
   const result = await requestManager.request(
     `${API_URL}/external/equipos/${ligaId}?force_refresh=${forceRefresh}`,
@@ -329,7 +322,6 @@ export async function obtenerPartidosExternos(ligaId, temporada = 2024, forceRef
     return [];
   }
   const id = requestId || `external-partidos-${ligaId}-${temporada}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching external partidos for liga:', ligaId, 'temporada:', temporada);
   const result = await requestManager.request(
     `${API_URL}/external/partidos/${ligaId}?temporada=${temporada}&force_refresh=${forceRefresh}`,
@@ -341,7 +333,6 @@ export async function obtenerPartidosExternos(ligaId, temporada = 2024, forceRef
 
 export async function obtenerEstadoCache(requestId = null) {
   const id = requestId || `cache-status-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Fetching cache status');
   const result = await requestManager.request(`${API_URL}/external/cache-status`, {}, id);
   return result || {};
@@ -349,7 +340,6 @@ export async function obtenerEstadoCache(requestId = null) {
 
 export async function limpiarCache(tipo = null, requestId = null) {
   const id = requestId || `cache-clear-${Date.now()}`;
-  requestManager.cancelRequest(id);
   const url = tipo
     ? `${API_URL}/external/cache/clear?tipo=${tipo}`
     : `${API_URL}/external/cache/clear`;
@@ -363,7 +353,6 @@ export async function importarLiga(ligaId, requestId = null) {
     return null;
   }
   const id = requestId || `import-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Importing liga:', ligaId);
   const result = await requestManager.request(`${API_URL}/importar-liga/${ligaId}`, { method: 'POST' }, id);
   return result;
@@ -375,7 +364,6 @@ export async function actualizarLigaEx(ligaId, temporada = 2024, requestId = nul
     return null;
   }
   const id = requestId || `update-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   console.log('[API] Updating liga external:', ligaId);
   const result = await requestManager.request(
     `${API_URL}/actualizar-liga/${ligaId}?temporada=${temporada}`,
@@ -393,7 +381,6 @@ export function cancelAllRequests() {
 export async function obtenerRankingLiga(ligaId, requestId = null) {
   if (!ligaId) return [];
   const id = requestId || `ranking-liga-${ligaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   const result = await requestManager.request(`${API_URL}/ligas/${ligaId}/ranking`, {}, id);
   return Array.isArray(result) ? result : [];
 }
@@ -402,7 +389,6 @@ export async function obtenerRankingLiga(ligaId, requestId = null) {
 export async function obtenerEstadisticasConFiltro(ligaId, temporadaId = null, requestId = null) {
   if (!ligaId) return {};
   const id = requestId || `stats-filtro-${ligaId}-${temporadaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   const url = temporadaId
     ? `${API_URL}/ligas/${ligaId}/estadisticas?temporada_id=${temporadaId}`
     : `${API_URL}/ligas/${ligaId}/estadisticas`;
@@ -414,7 +400,6 @@ export async function obtenerEstadisticasConFiltro(ligaId, temporadaId = null, r
 export async function obtenerEquiposTemporada(temporadaId, requestId = null) {
   if (!temporadaId) return [];
   const id = requestId || `equipos-temp-${temporadaId}-${Date.now()}`;
-  requestManager.cancelRequest(id);
   const result = await requestManager.request(`${API_URL}/temporadas/${temporadaId}/equipos`, {}, id);
   return Array.isArray(result) ? result : [];
 }
