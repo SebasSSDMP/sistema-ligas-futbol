@@ -12,8 +12,8 @@ from models import (
     Liga, LigaCreate, LigaUpdate,
     Temporada, TemporadaCreate,
     Equipo, EquipoCreate, EquipoUpdate,
-    Partido, PartidoCreate,
-    EstadisticasLiga, RankingLiga,
+    Partido, PartidoCreate, PartidoUpdate,
+    EstadisticasLiga, RankingLiga, RankingEquipo,
     LigaCache, EquipoCache, PartidoCache, CacheStatus
 )
 from api_football import APIFootballCache
@@ -88,6 +88,15 @@ def init_db():
             )
         """)
 
+        # REQ 5: tabla de asociacion equipo-temporada
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS temporada_equipos (
+                temporada_id INTEGER REFERENCES temporadas(id) ON DELETE CASCADE,
+                equipo_id    INTEGER REFERENCES equipos(id) ON DELETE CASCADE,
+                PRIMARY KEY (temporada_id, equipo_id)
+            )
+        """)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_equipos_liga_id         ON equipos(liga_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporadas_liga_id      ON temporadas(liga_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_partidos_temporada_id   ON partidos(temporada_id)")
@@ -109,7 +118,6 @@ def init_db():
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Validar API key — ahora se llama FOOTBALL_DATA_KEY
     api_key = os.environ.get("FOOTBALL_DATA_KEY")
     if not api_key:
         logger.error("FOOTBALL_DATA_KEY environment variable is not set!")
@@ -280,36 +288,86 @@ def eliminar_equipo(equipo_id: int, db=Depends(get_db)):
     return {"message": "Equipo eliminado"}
 
 
-# PARTIDOS
-@app.get("/temporadas/{temporada_id}/partidos", response_model=List[Partido])
-def obtener_partidos(temporada_id: int, db=Depends(get_db)):
+# REQ 5: Equipos por temporada
+@app.get("/temporadas/{temporada_id}/equipos", response_model=List[Equipo])
+def obtener_equipos_temporada(temporada_id: int, db=Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
-        "SELECT * FROM partidos WHERE temporada_id = %s ORDER BY fecha",
+        """
+        SELECT e.* FROM equipos e
+        JOIN temporada_equipos te ON e.id = te.equipo_id
+        WHERE te.temporada_id = %s
+        ORDER BY e.nombre
+        """,
         (temporada_id,)
     )
     return [dict(row) for row in cursor.fetchall()]
 
 
+@app.post("/temporadas/{temporada_id}/equipos/{equipo_id}")
+def asociar_equipo_temporada(temporada_id: int, equipo_id: int, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        INSERT INTO temporada_equipos (temporada_id, equipo_id)
+        VALUES (%s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (temporada_id, equipo_id)
+    )
+    db.commit()
+    return {"message": "Equipo asociado a temporada"}
+
+
+@app.delete("/temporadas/{temporada_id}/equipos/{equipo_id}")
+def desasociar_equipo_temporada(temporada_id: int, equipo_id: int, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "DELETE FROM temporada_equipos WHERE temporada_id = %s AND equipo_id = %s",
+        (temporada_id, equipo_id)
+    )
+    db.commit()
+    return {"message": "Equipo desasociado de temporada"}
+
+
+# PARTIDOS
+@app.get("/temporadas/{temporada_id}/partidos", response_model=List[Partido])
+def obtener_partidos(temporada_id: int, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT id, fecha, equipo_local, equipo_visitante,
+               goles_local, goles_visitante, temporada_id
+        FROM partidos WHERE temporada_id = %s ORDER BY fecha
+        """,
+        (temporada_id,)
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+# REQ 6: crear partido SIN arbitro/estadio
 @app.post("/partidos", response_model=Partido)
 def crear_partido(partido: PartidoCreate, db=Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
         """INSERT INTO partidos
-           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, arbitro, estadio, temporada_id)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, temporada_id)
+           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
         (
             partido.fecha, partido.equipo_local, partido.equipo_visitante,
-            partido.goles_local, partido.goles_visitante, partido.arbitro,
-            partido.estadio, partido.temporada_id,
+            partido.goles_local, partido.goles_visitante, partido.temporada_id,
         ),
     )
     db.commit()
     partido_id = cursor.fetchone()["id"]
-    cursor.execute("SELECT * FROM partidos WHERE id = %s", (partido_id,))
+    cursor.execute(
+        "SELECT id, fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, temporada_id FROM partidos WHERE id = %s",
+        (partido_id,)
+    )
     return dict(cursor.fetchone())
 
 
+# REQ 1: actualizar partido (solo goles y fecha)
 @app.put("/partidos/{partido_id}", response_model=Partido)
 def actualizar_partido(partido_id: int, partido: PartidoUpdate, db=Depends(get_db)):
     cursor = db.cursor()
@@ -320,46 +378,74 @@ def actualizar_partido(partido_id: int, partido: PartidoUpdate, db=Depends(get_d
         (partido.goles_local, partido.goles_visitante, partido.fecha, partido_id)
     )
     db.commit()
-    cursor.execute("SELECT * FROM partidos WHERE id = %s", (partido_id,))
+    cursor.execute(
+        "SELECT id, fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, temporada_id FROM partidos WHERE id = %s",
+        (partido_id,)
+    )
     result = cursor.fetchone()
     if not result:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     return dict(result)
 
 
-# ESTADÍSTICAS
+# REQ 2: estadísticas corregidas + filtro por temporada
 @app.get("/ligas/{liga_id}/estadisticas", response_model=EstadisticasLiga)
-def obtener_estadisticas(liga_id: int, db=Depends(get_db)):
+def obtener_estadisticas(
+    liga_id: int,
+    temporada_id: Optional[int] = Query(None),
+    db=Depends(get_db)
+):
     cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT
-            AVG(p.goles_local + p.goles_visitante)                                        AS promedio,
-            COUNT(p.id)                                                                    AS total_partidos,
-            SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3  THEN 1 ELSE 0 END)    AS partidos_alto,
-            SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END)    AS partidos_bajo
-        FROM partidos p
-        JOIN temporadas t ON p.temporada_id = t.id
-        WHERE t.liga_id = %s
-        """,
-        (liga_id,),
-    )
+
+    if temporada_id:
+        cursor.execute(
+            """
+            SELECT
+                AVG(p.goles_local + p.goles_visitante)                                        AS promedio,
+                COUNT(p.id)                                                                    AS total_partidos,
+                SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3  THEN 1 ELSE 0 END)    AS partidos_alto,
+                SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END)    AS partidos_bajo
+            FROM partidos p
+            JOIN temporadas t ON p.temporada_id = t.id
+            WHERE t.liga_id = %s AND p.temporada_id = %s
+            """,
+            (liga_id, temporada_id),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT
+                AVG(p.goles_local + p.goles_visitante)                                        AS promedio,
+                COUNT(p.id)                                                                    AS total_partidos,
+                SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3  THEN 1 ELSE 0 END)    AS partidos_alto,
+                SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END)    AS partidos_bajo
+            FROM partidos p
+            JOIN temporadas t ON p.temporada_id = t.id
+            WHERE t.liga_id = %s
+            """,
+            (liga_id,),
+        )
+
     row = cursor.fetchone()
     if row:
         return {
             "liga_id":                        liga_id,
-            "promedio_goles":                 round(row["promedio"], 2) if row["promedio"] else 0.0,
+            "promedio_goles":                 round(float(row["promedio"]), 2) if row["promedio"] else 0.0,
             "total_partidos":                 row["total_partidos"] or 0,
             "partidos_mas_3_goles":           row["partidos_alto"] or 0,
             "partidos_menos_igual_3_goles":   row["partidos_bajo"] or 0,
+            "umbral_goles":                   3,
+            "temporada_id":                   temporada_id,
         }
     return {
         "liga_id": liga_id, "promedio_goles": 0.0,
-        "total_partidos": 0, "partidos_mas_3_goles": 0, "partidos_menos_igual_3_goles": 0,
+        "total_partidos": 0, "partidos_mas_3_goles": 0,
+        "partidos_menos_igual_3_goles": 0, "umbral_goles": 3,
+        "temporada_id": temporada_id,
     }
 
 
-# RANKING
+# REQ 3: ranking general (corregido: NULL como 0)
 @app.get("/ranking", response_model=List[RankingLiga])
 def ranking_ligas(db=Depends(get_db)):
     cursor = db.cursor()
@@ -367,14 +453,66 @@ def ranking_ligas(db=Depends(get_db)):
         """
         SELECT
             l.id, l.nombre, l.pais,
-            AVG(p.goles_local + p.goles_visitante) AS promedio_goles,
-            COUNT(p.id)                             AS total_partidos
+            COALESCE(AVG(p.goles_local + p.goles_visitante), 0) AS promedio_goles,
+            COUNT(p.id)                                          AS total_partidos
         FROM ligas l
         LEFT JOIN temporadas t ON t.liga_id = l.id
         LEFT JOIN partidos   p ON p.temporada_id = t.id
         GROUP BY l.id
         ORDER BY promedio_goles DESC
         """
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+# REQ 3: ranking de equipos dentro de una liga
+@app.get("/ligas/{liga_id}/ranking", response_model=List[RankingEquipo])
+def ranking_liga(liga_id: int, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        WITH stats AS (
+            SELECT
+                e.id AS equipo_id,
+                e.nombre,
+                COUNT(p.id) AS partidos_jugados,
+                SUM(CASE
+                    WHEN p.equipo_local = e.id AND p.goles_local > p.goles_visitante THEN 1
+                    WHEN p.equipo_visitante = e.id AND p.goles_visitante > p.goles_local THEN 1
+                    ELSE 0
+                END) AS victorias,
+                SUM(CASE
+                    WHEN p.goles_local = p.goles_visitante THEN 1
+                    ELSE 0
+                END) AS empates,
+                SUM(CASE
+                    WHEN p.equipo_local = e.id AND p.goles_local < p.goles_visitante THEN 1
+                    WHEN p.equipo_visitante = e.id AND p.goles_visitante < p.goles_local THEN 1
+                    ELSE 0
+                END) AS derrotas,
+                SUM(CASE
+                    WHEN p.equipo_local = e.id THEN p.goles_local
+                    ELSE p.goles_visitante
+                END) AS goles_favor,
+                SUM(CASE
+                    WHEN p.equipo_local = e.id THEN p.goles_visitante
+                    ELSE p.goles_local
+                END) AS goles_contra
+            FROM equipos e
+            JOIN partidos p ON (p.equipo_local = e.id OR p.equipo_visitante = e.id)
+            JOIN temporadas t ON p.temporada_id = t.id
+            WHERE t.liga_id = %s AND e.liga_id = %s
+            GROUP BY e.id, e.nombre
+        )
+        SELECT
+            equipo_id, nombre, partidos_jugados, victorias, empates, derrotas,
+            goles_favor, goles_contra,
+            (goles_favor - goles_contra) AS diferencia_goles,
+            (victorias * 3 + empates) AS puntos
+        FROM stats
+        ORDER BY puntos DESC, (goles_favor - goles_contra) DESC
+        """,
+        (liga_id, liga_id)
     )
     return [dict(row) for row in cursor.fetchall()]
 
@@ -430,10 +568,6 @@ def limpiar_cache(tipo: Optional[str] = Query(None)):
 # ── Importar / Actualizar ─────────────────────────────────────────────────────
 @app.post("/importar-liga/{liga_id}")
 def importar_liga(liga_id: int, temporada: int = Query(2024)):
-    """
-    Importa una competición de football-data.org a la BD local.
-    liga_id = ID numérico de la competición, ej. 2021 (Premier League), 2014 (La Liga).
-    """
     logger.info(f"{'='*50}\nIMPORTANDO LIGA ID: {liga_id}\n{'='*50}")
 
     db = None
@@ -453,7 +587,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
         logger.info(f"Liga: {liga_data.get('name')} ({liga_data.get('country')})")
         logger.info(f"Equipos: {len(equipos_externos)}  |  Partidos: {len(partidos_externos)}")
 
-        # ── Liga local ────────────────────────────────────────────────────────
         cursor.execute(
             "SELECT id FROM ligas WHERE nombre = %s AND pais = %s",
             (liga_data.get("name"), liga_data.get("country")),
@@ -471,7 +604,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             local_liga_id = cursor.fetchone()["id"]
             logger.info(f"✓ Liga guardada: ID {local_liga_id}")
 
-        # ── Temporada local ───────────────────────────────────────────────────
         cursor.execute(
             "SELECT id FROM temporadas WHERE liga_id = %s AND nombre = %s",
             (local_liga_id, str(temporada)),
@@ -489,7 +621,6 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             local_temporada_id = cursor.fetchone()["id"]
             logger.info(f"✓ Temporada creada: ID {local_temporada_id}")
 
-        # ── Equipos ───────────────────────────────────────────────────────────
         equipos_guardados = 0
         equipos_map       = {}
 
@@ -502,7 +633,8 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
             )
             eq_existente = cursor.fetchone()
             if eq_existente:
-                equipos_map[eq["id"]] = eq_existente["id"]
+                local_eq_id = eq_existente["id"]
+                equipos_map[eq["id"]] = local_eq_id
             else:
                 cursor.execute(
                     "INSERT INTO equipos (nombre, liga_id) VALUES (%s, %s) RETURNING id",
@@ -517,9 +649,15 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                 equipos_guardados += 1
                 logger.info(f"✓ Equipo: {eq.get('name')} (ID local: {local_eq_id})")
 
+            # REQ 5: asociar equipo a temporada
+            cursor.execute(
+                "INSERT INTO temporada_equipos (temporada_id, equipo_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (local_temporada_id, local_eq_id)
+            )
+
+        db.commit()
         logger.info(f"Equipos nuevos: {equipos_guardados}")
 
-        # ── Partidos ──────────────────────────────────────────────────────────
         partidos_guardados = 0
         partidos_error     = 0
 
@@ -540,19 +678,17 @@ def importar_liga(liga_id: int, temporada: int = Query(2024)):
                 if cursor.fetchone():
                     continue
 
+                # REQ 6: sin arbitro/estadio
                 cursor.execute(
                     """INSERT INTO partidos
-                       (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante,
-                        arbitro, estadio, temporada_id)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                       (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, temporada_id)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
                     (
                         part.get("fecha"),
                         local_local_id,
                         local_visitante_id,
                         part.get("goles_local")     or 0,
                         part.get("goles_visitante") or 0,
-                        "Por definir",
-                        "Por definir",
                         local_temporada_id,
                     ),
                 )
@@ -643,7 +779,8 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
             )
             eq_existente = cursor.fetchone()
             if eq_existente:
-                equipos_map[eq["id"]] = eq_existente["id"]
+                local_eq_id = eq_existente["id"]
+                equipos_map[eq["id"]] = local_eq_id
             else:
                 cursor.execute(
                     "INSERT INTO equipos (nombre, liga_id) VALUES (%s, %s) RETURNING id",
@@ -653,10 +790,17 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
                 result = cursor.fetchone()
                 if result is None:
                     raise Exception("Failed to insert equipo")
-                equipo_id = result["id"]
-                equipos_map[eq["id"]] = equipo_id
+                local_eq_id = result["id"]
+                equipos_map[eq["id"]] = local_eq_id
                 equipos_guardados += 1
 
+            # REQ 5: asociar a temporada
+            cursor.execute(
+                "INSERT INTO temporada_equipos (temporada_id, equipo_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (local_temporada_id, local_eq_id)
+            )
+
+        db.commit()
         partidos_guardados = 0
 
         for part in partidos_externos:
@@ -671,19 +815,17 @@ def actualizar_liga_externa(liga_id: int, temporada: int = Query(2024)):
                     (local_local_id, local_visitante_id, part.get("fecha")),
                 )
                 if not cursor.fetchone():
+                    # REQ 6: sin arbitro/estadio
                     cursor.execute(
                         """INSERT INTO partidos
-                           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante,
-                            arbitro, estadio, temporada_id)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                           (fecha, equipo_local, equipo_visitante, goles_local, goles_visitante, temporada_id)
+                           VALUES (%s, %s, %s, %s, %s, %s)""",
                         (
                             part.get("fecha"),
                             local_local_id,
                             local_visitante_id,
                             part.get("goles_local")     or 0,
                             part.get("goles_visitante") or 0,
-                            "Por definir",
-                            "Por definir",
                             local_temporada_id,
                         ),
                     )

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { obtenerEstadisticas, obtenerRanking, cancelAllRequests } from '../api';
+import { obtenerEstadisticasConFiltro, obtenerRanking, cancelAllRequests } from '../api';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 export default function Estadisticas({ ligaId }) {
@@ -21,64 +21,45 @@ export default function Estadisticas({ ligaId }) {
 
   const cargarDatos = useCallback(async () => {
     if (!ligaId || !isMountedRef.current) return;
-
     const requestId = ++requestIdRef.current;
-    console.log(`[Estadisticas] Cargando datos, requestId: ${requestId}`);
-
     setLoading(true);
     setError(null);
-
     try {
       const [stats, rank] = await Promise.all([
-        obtenerEstadisticas(ligaId, `stats-${ligaId}-${requestId}`),
+        obtenerEstadisticasConFiltro(ligaId, null, `stats-${ligaId}-${requestId}`),
         obtenerRanking(`ranking-${requestId}`),
       ]);
-
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-
       setEstadisticas(stats || {});
       setRanking(Array.isArray(rank) ? rank : []);
-      console.log(`[Estadisticas] Datos cargados`);
     } catch (err) {
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-      console.error(`[Estadisticas] Error:`, err);
       setError(err.message || 'Error al cargar estadísticas');
     } finally {
-      if (isMountedRef.current && requestId === requestIdRef.current) {
-        setLoading(false);
-      }
+      if (isMountedRef.current && requestId === requestIdRef.current) setLoading(false);
     }
   }, [ligaId]);
 
-  useEffect(() => {
-    cargarDatos();
-  }, [ligaId]);
+  useEffect(() => { cargarDatos(); }, [ligaId]);
 
-  if (loading && !error) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-blue border-t-transparent"></div>
-      </div>
-    );
-  }
+  if (loading && !error) return (
+    <div className="flex items-center justify-center py-12">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-blue border-t-transparent"></div>
+    </div>
+  );
 
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-400 mb-4">{error}</p>
-        <button onClick={cargarDatos} className="bg-accent-blue text-dark-bg px-4 py-2 rounded-lg">
-          Reintentar
-        </button>
-      </div>
-    );
-  }
+  if (error) return (
+    <div className="text-center py-12">
+      <p className="text-red-400 mb-4">{error}</p>
+      <button onClick={cargarDatos} className="bg-accent-blue text-dark-bg px-4 py-2 rounded-lg">Reintentar</button>
+    </div>
+  );
 
-  const datosGoles = estadisticas
-    ? [
-        { name: '≤ 3 goles', value: estadisticas.partidos_menos_igual_3_goles || 0, color: '#10b981' },
-        { name: '> 3 goles', value: estadisticas.partidos_mas_3_goles || 0, color: '#f59e0b' },
-      ]
-    : [];
+  const umbral = estadisticas?.umbral_goles || 3;
+  const datosGoles = estadisticas ? [
+    { name: `≤ ${umbral} goles`, value: estadisticas.partidos_menos_igual_3_goles || 0, color: '#10b981' },
+    { name: `> ${umbral} goles`, value: estadisticas.partidos_mas_3_goles || 0, color: '#f59e0b' },
+  ] : [];
 
   const datosRanking = (ranking || []).map((liga) => ({
     nombre: (liga.nombre || 'Sin nombre').length > 15
@@ -100,19 +81,15 @@ export default function Estadisticas({ ligaId }) {
         </div>
         <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
           <p className="text-gray-400 text-sm mb-1">Promedio Goles</p>
-          <p className="text-3xl font-bold text-accent-green">
-            {(estadisticas?.promedio_goles || 0).toFixed(2)}
-          </p>
+          <p className="text-3xl font-bold text-accent-green">{(estadisticas?.promedio_goles || 0).toFixed(2)}</p>
         </div>
         <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-          <p className="text-gray-400 text-sm mb-1">Partidos &gt;3 goles</p>
+          <p className="text-gray-400 text-sm mb-1">Partidos &gt;{umbral} goles</p>
           <p className="text-3xl font-bold text-accent-orange">{estadisticas?.partidos_mas_3_goles || 0}</p>
         </div>
         <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-          <p className="text-gray-400 text-sm mb-1">Partidos ≤3 goles</p>
-          <p className="text-3xl font-bold text-accent-purple">
-            {estadisticas?.partidos_menos_igual_3_goles || 0}
-          </p>
+          <p className="text-gray-400 text-sm mb-1">Partidos ≤{umbral} goles</p>
+          <p className="text-3xl font-bold text-accent-purple">{estadisticas?.partidos_menos_igual_3_goles || 0}</p>
         </div>
       </div>
 
@@ -122,24 +99,11 @@ export default function Estadisticas({ ligaId }) {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie
-                  data={datosGoles}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {datosGoles.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
+                <Pie data={datosGoles} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                  {datosGoles.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                 </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  itemStyle={{ color: '#fff' }}
-                />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -147,22 +111,13 @@ export default function Estadisticas({ ligaId }) {
         </div>
 
         <div className="bg-dark-card rounded-2xl p-6 border border-dark-border">
-          <h4 className="text-lg font-semibold text-white mb-4">Ranking por Promedio de Goles</h4>
+          <h4 className="text-lg font-semibold text-white mb-4">Ranking General — Promedio de Goles</h4>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={datosRanking} layout="vertical">
                 <XAxis type="number" stroke="#64748b" />
-                <YAxis
-                  type="category"
-                  dataKey="nombre"
-                  stroke="#64748b"
-                  width={100}
-                  tick={{ fill: '#fff', fontSize: 12 }}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  itemStyle={{ color: '#fff' }}
-                />
+                <YAxis type="category" dataKey="nombre" stroke="#64748b" width={100} tick={{ fill: '#fff', fontSize: 12 }} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
                 <Bar dataKey="promedio" fill="#38bdf8" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -170,37 +125,25 @@ export default function Estadisticas({ ligaId }) {
         </div>
       </div>
 
+      {/* REQ 3: Ranking general completo */}
       <div className="mt-6 bg-dark-card rounded-2xl p-6 border border-dark-border">
-        <h4 className="text-lg font-semibold text-white mb-4">Resumen de Ranking</h4>
+        <h4 className="text-lg font-semibold text-white mb-4">Ranking General de Ligas</h4>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-sm border-b border-dark-border">
+              <tr className="text-gray-400 border-b border-dark-border">
                 <th className="text-left py-3 px-4">#</th>
                 <th className="text-left py-3 px-4">Liga</th>
                 <th className="text-left py-3 px-4">País</th>
                 <th className="text-right py-3 px-4">Partidos</th>
-                <th className="text-right py-3 px-4">Promedio</th>
+                <th className="text-right py-3 px-4">Prom. Goles</th>
               </tr>
             </thead>
             <tbody>
               {(ranking || []).map((liga, index) => (
-                <tr
-                  key={liga.id || index}
-                  className={`border-b border-dark-border ${liga.id === ligaId ? 'bg-accent-blue/10' : ''}`}
-                >
+                <tr key={liga.id || index} className={`border-b border-dark-border ${liga.id === ligaId ? 'bg-accent-blue/10' : ''}`}>
                   <td className="py-3 px-4">
-                    <span
-                      className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                        index === 0
-                          ? 'bg-yellow-500 text-dark-bg'
-                          : index === 1
-                          ? 'bg-gray-400 text-dark-bg'
-                          : index === 2
-                          ? 'bg-amber-700 text-white'
-                          : 'bg-dark-border text-gray-400'
-                      }`}
-                    >
+                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${index === 0 ? 'bg-yellow-500 text-dark-bg' : index === 1 ? 'bg-gray-400 text-dark-bg' : index === 2 ? 'bg-amber-700 text-white' : 'bg-dark-border text-gray-400'}`}>
                       {index + 1}
                     </span>
                   </td>
@@ -209,7 +152,7 @@ export default function Estadisticas({ ligaId }) {
                   <td className="py-3 px-4 text-right text-gray-400">{liga.total_partidos || 0}</td>
                   <td className="py-3 px-4 text-right">
                     <span className={`font-bold ${liga.id === ligaId ? 'text-accent-blue' : 'text-gray-300'}`}>
-                      {liga.promedio_goles ? liga.promedio_goles.toFixed(2) : '0.00'}
+                      {liga.promedio_goles ? Number(liga.promedio_goles).toFixed(2) : '0.00'}
                     </span>
                   </td>
                 </tr>

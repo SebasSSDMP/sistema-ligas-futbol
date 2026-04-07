@@ -388,3 +388,45 @@ export async function actualizarLigaEx(ligaId, temporada = 2024, requestId = nul
 export function cancelAllRequests() {
   requestManager.cancelAllRequests();
 }
+
+// REQ 3: Ranking por liga
+export async function obtenerRankingLiga(ligaId, requestId = null) {
+  if (!ligaId) return [];
+  const id = requestId || `ranking-liga-${ligaId}-${Date.now()}`;
+  requestManager.cancelRequest(id);
+  const result = await requestManager.request(`${API_URL}/ligas/${ligaId}/ranking`, {}, id);
+  return Array.isArray(result) ? result : [];
+}
+
+// REQ 4: Estadísticas filtradas por temporada
+export async function obtenerEstadisticasConFiltro(ligaId, temporadaId = null, requestId = null) {
+  if (!ligaId) return {};
+  const id = requestId || `stats-filtro-${ligaId}-${temporadaId}-${Date.now()}`;
+  requestManager.cancelRequest(id);
+  const url = temporadaId
+    ? `${API_URL}/ligas/${ligaId}/estadisticas?temporada_id=${temporadaId}`
+    : `${API_URL}/ligas/${ligaId}/estadisticas`;
+  const result = await requestManager.request(url, {}, id);
+  return result || {};
+}
+
+// REQ 5: Equipos por temporada
+export async function obtenerEquiposTemporada(temporadaId, requestId = null) {
+  if (!temporadaId) return [];
+  const id = requestId || `equipos-temp-${temporadaId}-${Date.now()}`;
+  requestManager.cancelRequest(id);
+  const result = await requestManager.request(`${API_URL}/temporadas/${temporadaId}/equipos`, {}, id);
+  return Array.isArray(result) ? result : [];
+}
+
+export async function asociarEquipoTemporada(temporadaId, equipoId) {
+  return requestManager.request(`${API_URL}/temporadas/${temporadaId}/equipos/${equipoId}`, {
+    method: 'POST',
+  });
+}
+
+export async function desasociarEquipoTemporada(temporadaId, equipoId) {
+  return requestManager.request(`${API_URL}/temporadas/${temporadaId}/equipos/${equipoId}`, {
+    method: 'DELETE',
+  });
+}
