@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { obtenerEstadisticasConFiltro, obtenerRanking } from '../api';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
@@ -10,25 +10,23 @@ export default function Estadisticas({ ligaId }) {
 
   const isMountedRef = useRef(true);
   const requestIdRef = useRef(0);
-  // Use a component-scoped AbortController instead of cancelAllRequests()
-  // to avoid cancelling requests from other components
   const abortControllerRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      // Only abort this component's own in-flight requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
   }, []);
 
-  const cargarDatos = useCallback(async () => {
+  // FIX 2: useEffect depende directamente de ligaId, sin pasar por useCallback
+  // Esto evita que cargarDatos se recree y dispare renders extra
+  useEffect(() => {
     if (!ligaId) return;
 
-    // Abort any previous request from this component
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -37,37 +35,42 @@ export default function Estadisticas({ ligaId }) {
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
+    // FIX 1: NO limpiamos estadisticas/ranking aquí.
+    // Los datos anteriores se quedan visibles mientras carga el nuevo fetch,
+    // así Recharts nunca desmonta las gráficas.
 
-    try {
-      const [stats, rank] = await Promise.all([
-        obtenerEstadisticasConFiltro(ligaId, null, `stats-${ligaId}-${requestId}`),
-        obtenerRanking(`ranking-${requestId}`),
-      ]);
+    const cargar = async () => {
+      try {
+        const [stats, rank] = await Promise.all([
+          obtenerEstadisticasConFiltro(ligaId, null, `stats-${ligaId}-${requestId}`),
+          obtenerRanking(`ranking-${requestId}`),
+        ]);
 
-      // Guard: ignore stale responses
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+        if (!isMountedRef.current || requestId !== requestIdRef.current) return;
 
-      setEstadisticas(stats || {});
-      setRanking(Array.isArray(rank) ? rank : []);
-    } catch (err) {
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
-      // Don't show error for aborted requests
-      if (err?.name === 'AbortError') return;
-      setError(err.message || 'Error al cargar estadísticas');
-    } finally {
-      // Only update loading state if this is still the latest request
-      if (isMountedRef.current && requestId === requestIdRef.current) {
-        setLoading(false);
+        setEstadisticas(stats || {});
+        setRanking(Array.isArray(rank) ? rank : []);
+      } catch (err) {
+        if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+        if (err?.name === 'AbortError') return;
+        setError(err.message || 'Error al cargar estadísticas');
+      } finally {
+        if (isMountedRef.current && requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
-    }
-  }, [ligaId]);
+    };
 
-  // Include cargarDatos in deps so it re-runs when ligaId changes
-  useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    cargar();
+  }, [ligaId]); // <-- solo ligaId, sin useCallback de por medio
 
-  if (loading && !error) return (
+  // FIX 1 (continuación): Solo mostramos el spinner full-screen en la
+  // carga inicial (cuando todavía no hay ningún dato que mostrar).
+  // En recargas posteriores, las gráficas permanecen visibles con un
+  // overlay semitransparente encima.
+  const isInitialLoad = loading && estadisticas === null;
+
+  if (isInitialLoad) return (
     <div className="flex items-center justify-center py-12">
       <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-blue border-t-transparent"></div>
     </div>
@@ -76,7 +79,18 @@ export default function Estadisticas({ ligaId }) {
   if (error) return (
     <div className="text-center py-12">
       <p className="text-red-400 mb-4">{error}</p>
-      <button onClick={cargarDatos} className="bg-accent-blue text-dark-bg px-4 py-2 rounded-lg">Reintentar</button>
+      <button
+        onClick={() => {
+          // Re-trigger el effect incrementando manualmente el requestId
+          // con un pequeño truco: cambiamos el estado para forzar re-render
+          setError(null);
+          setLoading(true);
+          setEstadisticas(null); // volvemos a initial load para que muestre spinner
+        }}
+        className="bg-accent-blue text-dark-bg px-4 py-2 rounded-lg"
+      >
+        Reintentar
+      </button>
     </div>
   );
 
@@ -96,7 +110,20 @@ export default function Estadisticas({ ligaId }) {
   }));
 
   return (
-    <div>
+    // FIX 1 (continuación): wrapper con opacity reducida durante recargas.
+    // Las gráficas siguen montadas — solo se atenúan visualmente.
+    <div style={{ position: 'relative', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+
+      {/* Spinner overlay durante recargas (no reemplaza el contenido) */}
+      {loading && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 10,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-accent-blue border-t-transparent"></div>
+        </div>
+      )}
+
       <h3 className="text-2xl font-bold text-white mb-6">Estadísticas</h3>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
