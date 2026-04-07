@@ -769,41 +769,70 @@ export default function LigaDashboard({ liga, onVolver }) {
                 {loadingEstadisticas && <span className="text-gray-400 text-sm">Cargando...</span>}
               </div>
 
-              {estadisticas ? (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-                      <p className="text-gray-400 text-sm mb-1">Total Partidos</p>
-                      <p className="text-3xl font-bold text-accent-blue">{estadisticas.total_partidos || 0}</p>
+              <>
+                {/* KPIs */}
+                {estadisticas && (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
+                        <p className="text-gray-400 text-sm mb-1">Total Partidos</p>
+                        <p className="text-3xl font-bold text-accent-blue">
+                          {estadisticas.total_partidos || 0}
+                        </p>
+                      </div>
+
+                      <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
+                        <p className="text-gray-400 text-sm mb-1">Promedio Goles</p>
+                        <p className="text-3xl font-bold text-accent-green">
+                          {(estadisticas.promedio_goles || 0).toFixed(2)}
+                        </p>
+                      </div>
+
+                      <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
+                        <p className="text-gray-400 text-sm mb-1">
+                          Partidos &gt;{estadisticas.umbral_goles || 3} goles
+                        </p>
+                        <p className="text-3xl font-bold text-accent-orange">
+                          {estadisticas.partidos_mas_3_goles || 0}
+                        </p>
+                      </div>
+
+                      <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
+                        <p className="text-gray-400 text-sm mb-1">
+                          Partidos ≤{estadisticas.umbral_goles || 3} goles
+                        </p>
+                        <p className="text-3xl font-bold text-accent-purple">
+                          {estadisticas.partidos_menos_igual_3_goles || 0}
+                        </p>
+                      </div>
                     </div>
-                    <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-                      <p className="text-gray-400 text-sm mb-1">Promedio Goles</p>
-                      <p className="text-3xl font-bold text-accent-green">{(estadisticas.promedio_goles || 0).toFixed(2)}</p>
+
+                    <div className="bg-dark-card rounded-xl p-4 border border-dark-border text-sm text-gray-400">
+                      ✅ Verificación:{" "}
+                      {(estadisticas.partidos_mas_3_goles || 0) +
+                        (estadisticas.partidos_menos_igual_3_goles || 0)}{" "}
+                      = {estadisticas.total_partidos || 0} partidos totales
+                      {((estadisticas.partidos_mas_3_goles || 0) +
+                        (estadisticas.partidos_menos_igual_3_goles || 0)) ===
+                        (estadisticas.total_partidos || 0)
+                        ? " ✓ Consistente"
+                        : " ⚠️ Inconsistente"}
+                      {estadisticas.temporada_id && (
+                        <span className="ml-4 text-accent-green">
+                          Filtrado por temporada
+                        </span>
+                      )}
                     </div>
-                    <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-                      <p className="text-gray-400 text-sm mb-1">Partidos &gt;{estadisticas.umbral_goles || 3} goles</p>
-                      <p className="text-3xl font-bold text-accent-orange">{estadisticas.partidos_mas_3_goles || 0}</p>
-                    </div>
-                    <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
-                      <p className="text-gray-400 text-sm mb-1">Partidos ≤{estadisticas.umbral_goles || 3} goles</p>
-                      <p className="text-3xl font-bold text-accent-purple">{estadisticas.partidos_menos_igual_3_goles || 0}</p>
-                    </div>
-                  </div>
-                  <div className="bg-dark-card rounded-xl p-4 border border-dark-border text-sm text-gray-400">
-                    ✅ Verificación: {(estadisticas.partidos_mas_3_goles || 0) + (estadisticas.partidos_menos_igual_3_goles || 0)} = {estadisticas.total_partidos || 0} partidos totales
-                    {((estadisticas.partidos_mas_3_goles || 0) + (estadisticas.partidos_menos_igual_3_goles || 0)) === (estadisticas.total_partidos || 0)
-                      ? ' ✓ Consistente'
-                      : ' ⚠️ Inconsistente'}
-                    {estadisticas.temporada_id && <span className="ml-4 text-accent-green">Filtrado por temporada</span>}
-                  </div>
-                </>
-              ) : (
+                  </>
+                )}
+
+                {/* 🔥 GRÁFICAS SIEMPRE MONTADAS */}
                 <Estadisticas
                   ligaId={liga.id}
                   estadisticasExternas={estadisticas}
                   rankingExterno={rankingEquipos}
                 />
-              )}
+              </>
             </div>
           )}
 

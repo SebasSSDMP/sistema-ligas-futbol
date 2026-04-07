@@ -30,9 +30,10 @@ export default function Estadisticas({ estadisticasExternas, rankingExterno = []
   // 🚨 DEBUG CRÍTICO
   if (!stats) {
     console.log("⚠️ NO HAY STATS");
+
     return (
-      <div style={{ padding: 20, color: "red" }}>
-        ❌ No hay datos de estadísticas
+      <div style={{ padding: 20, color: "yellow" }}>
+        ⏳ Esperando estadísticas...
       </div>
     );
   }
