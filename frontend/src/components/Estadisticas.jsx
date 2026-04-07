@@ -24,8 +24,12 @@ export default function Estadisticas({ ligaId }) {
 
   // FIX 2: useEffect depende directamente de ligaId, sin pasar por useCallback
   // Esto evita que cargarDatos se recree y dispare renders extra
+  const hasFetchedRef = useRef(false);
+
   useEffect(() => {
-    if (!ligaId) return;
+    if (!ligaId || hasFetchedRef.current) return;
+
+    hasFetchedRef.current = true;
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();

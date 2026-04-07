@@ -10,13 +10,9 @@ class RequestManager {
   constructor() {
     this.controllers = new Map();
     this.pendingRequests = new Set();
-    // Cache for deduplication: {url: {data, timestamp}}
-    // FIX: guardamos el dato resuelto, NO la Promise.
-    // Guardar una Promise cacheada hacía que requests con distintos
-    // requestId recibieran la misma Promise instantáneamente, adelantando
-    // al fetch real y rompiendo los guards de stale-request en los componentes.
     this.requestCache = new Map();
     this.CACHE_DURATION_MS = 5000;
+    this.inFlightRequests = new Map(); // 🔥 NUEVO
   }
 
   generateRequestId(endpoint) {
@@ -39,101 +35,108 @@ class RequestManager {
   }
 
   async request(url, options = {}, requestId = null) {
-    // FIX: el caché devuelve el dato directamente (no una Promise),
-    // así el componente lo recibe de forma normal y los guards funcionan.
     const cacheKey = `${url}:${options.method || 'GET'}`;
+
+    // ✅ CACHE NORMAL
     const cached = this.requestCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < this.CACHE_DURATION_MS)) {
       console.log(`[API] Returning cached response for ${url}`);
       return cached.data;
     }
 
+    // 🔥 NUEVO: evitar requests duplicados en curso
+    if (this.inFlightRequests.has(cacheKey)) {
+      console.log(`[API] Reusing in-flight request for ${url}`);
+      return this.inFlightRequests.get(cacheKey);
+    }
+
     const controller = new AbortController();
     const id = requestId || this.generateRequestId(url);
+
     this.controllers.set(id, controller);
     this.pendingRequests.add(id);
 
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, REQUEST_TIMEOUT);
+    const fetchPromise = (async () => {
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, REQUEST_TIMEOUT);
 
-    let lastError = null;
+      let lastError = null;
 
-    try {
-      startGlobalLoading();
-      clearGlobalError();
+      try {
+        startGlobalLoading();
+        clearGlobalError();
 
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        if (attempt > 0) {
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-          console.log(`[API] Retry attempt ${attempt} for ${url}`);
-        }
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+            console.log(`[API] Retry attempt ${attempt} for ${url}`);
+          }
 
-        try {
-          console.log(`[API] Request ${attempt === 0 ? 'started' : 'retry'}: ${url}`);
+          try {
+            console.log(`[API] Request ${attempt === 0 ? 'started' : 'retry'}: ${url}`);
 
-          const response = await fetch(url, {
-            ...options,
-            signal: controller.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              ...options.headers,
-            },
-          });
+            const response = await fetch(url, {
+              ...options,
+              signal: controller.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+              },
+            });
 
-          if (!response.ok) {
-            let errorDetail = `HTTP ${response.status}`;
-            try {
-              const errorData = await response.json();
-              errorDetail = errorData.detail || errorDetail;
-            } catch {
-              // ignore JSON parse errors
+            if (!response.ok) {
+              let errorDetail = `HTTP ${response.status}`;
+              try {
+                const errorData = await response.json();
+                errorDetail = errorData.detail || errorDetail;
+              } catch { }
+              throw new Error(errorDetail);
             }
-            throw new Error(errorDetail);
-          }
 
-          const text = await response.text();
-          const data = text ? JSON.parse(text) : null;
+            const text = await response.text();
+            const data = text ? JSON.parse(text) : null;
 
-          console.log(`[API] Success: ${url}`, data ? `(${Array.isArray(data) ? data.length + ' items' : 'object'})` : '(empty)');
+            console.log(`[API] Success: ${url}`);
 
-          // FIX: guardamos el dato, no la Promise
-          this.requestCache.set(cacheKey, { data, timestamp: Date.now() });
-          this._cleanCache();
+            // guardar cache
+            this.requestCache.set(cacheKey, {
+              data,
+              timestamp: Date.now()
+            });
 
-          this.controllers.delete(id);
-          this.pendingRequests.delete(id);
-          clearTimeout(timeoutId);
-          stopGlobalLoading();
+            this._cleanCache();
 
-          return data;
-        } catch (error) {
-          lastError = error;
+            return data;
 
-          if (error.name === 'AbortError') {
-            console.log(`[API] Aborted: ${url}`);
-            return null;
-          }
+          } catch (error) {
+            lastError = error;
 
-          console.error(`[API] Error${attempt < MAX_RETRIES ? ' (will retry)' : ''}: ${url}`, error.message);
+            if (error.name === 'AbortError') {
+              console.log(`[API] Aborted: ${url}`);
+              return null;
+            }
 
-          if (attempt === MAX_RETRIES) {
-            break;
+            if (attempt === MAX_RETRIES) break;
           }
         }
+      } finally {
+        this.controllers.delete(id);
+        this.pendingRequests.delete(id);
+        clearTimeout(timeoutId);
+        stopGlobalLoading();
+        this.inFlightRequests.delete(cacheKey); // 🔥 limpiar
       }
-    } finally {
-      this.controllers.delete(id);
-      this.pendingRequests.delete(id);
-      clearTimeout(timeoutId);
-      stopGlobalLoading();
-    }
 
-    if (lastError) {
-      setGlobalError(lastError.message);
-    }
+      if (lastError) {
+        setGlobalError(lastError.message);
+        throw lastError;
+      }
+    })();
 
-    throw lastError;
+    this.inFlightRequests.set(cacheKey, fetchPromise);
+
+    return fetchPromise;
   }
 
   _cleanCache() {

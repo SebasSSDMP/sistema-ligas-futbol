@@ -233,10 +233,14 @@ export default function ExplorarLigas() {
   }, [ligaSeleccionada, temporada]);
 
   // Initial load — stable empty deps array, cargarLigas is stable (no deps)
+  const loadedRef = useRef(false);
+
   useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+
     cargarLigas(false);
     cargarCacheStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load partidos whenever liga or temporada changes
@@ -402,11 +406,10 @@ export default function ExplorarLigas() {
                 <div
                   key={liga.id}
                   onClick={() => seleccionarLiga(liga)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    ligaSeleccionada?.id === liga.id
+                  className={`p-4 rounded-xl border cursor-pointer transition-all ${ligaSeleccionada?.id === liga.id
                       ? 'border-accent-blue bg-accent-blue/10'
                       : 'border-dark-border hover:border-accent-blue/50'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     {liga.logo && (
