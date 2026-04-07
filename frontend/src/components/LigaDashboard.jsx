@@ -215,12 +215,15 @@ export default function LigaDashboard({ liga, onVolver }) {
     }
   }, [temporadaSeleccionada, cargarPartidos, cargarEquiposTemporada]);
 
+  const yaCargadoRef = useRef(false);
+
   useEffect(() => {
-    if (seccion === 'estadisticas') {
+    if (seccion === 'estadisticas' && liga?.id && !yaCargadoRef.current) {
+      yaCargadoRef.current = true;
       cargarEstadisticas(temporadaEstadisticas || null);
       cargarRankingEquipos();
     }
-  }, [seccion]);
+  }, [seccion, liga?.id]);
 
   const seleccionarTemporada = useCallback((temp) => {
     if (!temp?.id || !isMountedRef.current) return;
@@ -829,11 +832,12 @@ export default function LigaDashboard({ liga, onVolver }) {
                 )}
 
                 {/* 🔥 GRÁFICAS SIEMPRE MONTADAS */}
-                <Estadisticas
-                  ligaId={liga.id}
-                  estadisticasExternas={estadisticas}
-                  rankingExterno={rankingEquipos}
-                />
+                <div style={{ minHeight: 400 }}>
+                  <Estadisticas
+                    estadisticasExternas={estadisticas}
+                    rankingExterno={rankingEquipos}
+                  />
+                </div>
               </>
             </div>
           )}
