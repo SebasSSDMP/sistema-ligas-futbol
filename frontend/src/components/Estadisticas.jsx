@@ -24,24 +24,19 @@ export default function Estadisticas({ ligaId }) {
 
   // FIX 2: useEffect depende directamente de ligaId, sin pasar por useCallback
   // Esto evita que cargarDatos se recree y dispare renders extra
-  const hasFetchedRef = useRef(false);
-
   useEffect(() => {
-    if (!ligaId || hasFetchedRef.current) return;
-
-    hasFetchedRef.current = true;
+    if (!ligaId) return;
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+
     abortControllerRef.current = new AbortController();
 
     const requestId = ++requestIdRef.current;
+
     setLoading(true);
     setError(null);
-    // FIX 1: NO limpiamos estadisticas/ranking aquí.
-    // Los datos anteriores se quedan visibles mientras carga el nuevo fetch,
-    // así Recharts nunca desmonta las gráficas.
 
     const cargar = async () => {
       try {
@@ -57,6 +52,7 @@ export default function Estadisticas({ ligaId }) {
       } catch (err) {
         if (!isMountedRef.current || requestId !== requestIdRef.current) return;
         if (err?.name === 'AbortError') return;
+
         setError(err.message || 'Error al cargar estadísticas');
       } finally {
         if (isMountedRef.current && requestId === requestIdRef.current) {
@@ -66,7 +62,7 @@ export default function Estadisticas({ ligaId }) {
     };
 
     cargar();
-  }, [ligaId]); // <-- solo ligaId, sin useCallback de por medio
+  }, [ligaId]);
 
   // FIX 1 (continuación): Solo mostramos el spinner full-screen en la
   // carga inicial (cuando todavía no hay ningún dato que mostrar).
