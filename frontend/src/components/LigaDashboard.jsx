@@ -798,7 +798,11 @@ export default function LigaDashboard({ liga, onVolver }) {
                   </div>
                 </>
               ) : (
-                <Estadisticas ligaId={liga.id} />
+                <Estadisticas
+                  ligaId={liga.id}
+                  estadisticasExternas={estadisticas}
+                  rankingExterno={rankingEquipos}
+                />
               )}
             </div>
           )}

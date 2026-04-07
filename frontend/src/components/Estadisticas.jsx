@@ -1,99 +1,105 @@
-import { useState, useEffect, useRef } from 'react';
-import { obtenerEstadisticasConFiltro, obtenerRanking } from '../api';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend
 } from 'recharts';
 
-export default function Estadisticas({ ligaId }) {
-  const [estadisticas, setEstadisticas] = useState(null);
-  const [ranking, setRanking] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function Estadisticas({ estadisticasExternas, rankingExterno = [] }) {
 
-  const requestIdRef = useRef(0);
+  // 🔥 Fuente única de datos (sin estados internos)
+  const stats = estadisticasExternas;
 
-  useEffect(() => {
-    if (!ligaId) return;
+  // 🚫 Evitar render vacío
+  if (!stats) {
+    return (
+      <div style={{ padding: 20 }}>
+        <p style={{ color: "white" }}>Cargando gráficas...</p>
+      </div>
+    );
+  }
 
-    const requestId = ++requestIdRef.current;
-
-    const cargar = async () => {
-      console.log("🚀 CARGANDO ESTADISTICAS...");
-
-      const [stats, rank] = await Promise.all([
-        obtenerEstadisticasConFiltro(ligaId),
-        obtenerRanking()
-      ]);
-
-      console.log("📊 STATS:", stats);
-      console.log("📊 RANK:", rank);
-
-      setEstadisticas(stats || {});
-      setRanking(Array.isArray(rank) ? rank : []);
-      setLoading(false);
-    };
-
-    cargar();
-  }, [ligaId]);
-
-  // 🔥 DEBUG VISUAL
-  console.log("🎯 RENDER");
-  console.log("datos estadisticas:", estadisticas);
-
+  // 📊 Datos para gráfica de goles
   const datosGoles = [
     {
       name: "Menos de 3",
-      value: estadisticas?.partidos_menos_igual_3_goles ?? 0,
+      value: stats.partidos_menos_igual_3_goles || 0,
     },
     {
       name: "Más de 3",
-      value: estadisticas?.partidos_mas_3_goles ?? 0,
+      value: stats.partidos_mas_3_goles || 0,
     }
   ];
 
-  const datosRanking = (ranking || []).map(l => ({
+  // 📊 Datos para gráfica de ranking
+  const datosRanking = (rankingExterno || []).map(l => ({
     nombre: l.nombre,
-    promedio: l.promedio_goles
+    promedio: Number(l.promedio_goles || 0)
   }));
 
-  console.log("📈 datosGoles:", datosGoles);
-  console.log("📈 datosRanking:", datosRanking);
+  // 🎨 Colores
+  const COLORS = ["#10b981", "#f59e0b"];
 
   return (
     <div style={{ padding: 20 }}>
 
-      <h2 style={{ color: "white" }}>DEBUG GRÁFICAS</h2>
+      {/* ===================== */}
+      {/* 📊 GRÁFICA PIE */}
+      {/* ===================== */}
+      <div style={{
+        width: "100%",
+        height: 300,
+        background: "#111",
+        borderRadius: 12,
+        padding: 10
+      }}>
+        <h3 style={{ color: "white", marginBottom: 10 }}>
+          Distribución de Goles
+        </h3>
 
-      {/* 🔥 DEBUG VISUAL */}
-      <pre style={{ color: "lime", fontSize: 12 }}>
-        {JSON.stringify({ datosGoles, datosRanking }, null, 2)}
-      </pre>
-
-      {/* PIE */}
-      <div style={{ width: "100%", height: 300, background: "#111" }}>
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="85%">
           <PieChart>
-            <Pie data={datosGoles} dataKey="value" fill="#8884d8">
-              {datosGoles.map((entry, i) => (
-                <Cell key={i} fill={i === 0 ? "#10b981" : "#f59e0b"} />
+            <Pie
+              data={datosGoles}
+              dataKey="value"
+              nameKey="name"
+              outerRadius={100}
+              label
+            >
+              {datosGoles.map((_, i) => (
+                <Cell key={i} fill={COLORS[i % COLORS.length]} />
               ))}
             </Pie>
             <Tooltip />
+            <Legend />
           </PieChart>
         </ResponsiveContainer>
       </div>
 
-      {/* BAR */}
-      <div style={{ width: "100%", height: 300, background: "#222", marginTop: 40 }}>
-        <ResponsiveContainer width="100%" height="100%">
+      {/* ===================== */}
+      {/* 📊 GRÁFICA BAR */}
+      {/* ===================== */}
+      <div style={{
+        width: "100%",
+        height: 320,
+        background: "#222",
+        marginTop: 40,
+        borderRadius: 12,
+        padding: 10
+      }}>
+        <h3 style={{ color: "white", marginBottom: 10 }}>
+          Promedio de Goles por Liga
+        </h3>
+
+        <ResponsiveContainer width="100%" height="85%">
           <BarChart data={datosRanking}>
-            <XAxis dataKey="nombre" />
-            <YAxis />
+            <XAxis dataKey="nombre" stroke="#ccc" />
+            <YAxis stroke="#ccc" />
             <Tooltip />
-            <Bar dataKey="promedio" fill="#38bdf8" />
+            <Legend />
+            <Bar dataKey="promedio" fill="#38bdf8" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
+
     </div>
   );
 }
