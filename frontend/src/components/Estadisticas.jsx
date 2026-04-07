@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { obtenerEstadisticasConFiltro, obtenerRanking, cancelAllRequests } from '../api';
+import { obtenerEstadisticasConFiltro, obtenerRanking } from '../api';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 export default function Estadisticas({ ligaId }) {
@@ -10,37 +10,62 @@ export default function Estadisticas({ ligaId }) {
 
   const isMountedRef = useRef(true);
   const requestIdRef = useRef(0);
+  // Use a component-scoped AbortController instead of cancelAllRequests()
+  // to avoid cancelling requests from other components
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      cancelAllRequests();
+      // Only abort this component's own in-flight requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
   const cargarDatos = useCallback(async () => {
-    if (!ligaId || !isMountedRef.current) return;
+    if (!ligaId) return;
+
+    // Abort any previous request from this component
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
+
     try {
       const [stats, rank] = await Promise.all([
         obtenerEstadisticasConFiltro(ligaId, null, `stats-${ligaId}-${requestId}`),
         obtenerRanking(`ranking-${requestId}`),
       ]);
+
+      // Guard: ignore stale responses
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+
       setEstadisticas(stats || {});
       setRanking(Array.isArray(rank) ? rank : []);
     } catch (err) {
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+      // Don't show error for aborted requests
+      if (err?.name === 'AbortError') return;
       setError(err.message || 'Error al cargar estadísticas');
     } finally {
-      if (isMountedRef.current && requestId === requestIdRef.current) setLoading(false);
+      // Only update loading state if this is still the latest request
+      if (isMountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [ligaId]);
 
-  useEffect(() => { cargarDatos(); }, [ligaId]);
+  // Include cargarDatos in deps so it re-runs when ligaId changes
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
 
   if (loading && !error) return (
     <div className="flex items-center justify-center py-12">
@@ -125,7 +150,6 @@ export default function Estadisticas({ ligaId }) {
         </div>
       </div>
 
-      {/* REQ 3: Ranking general completo */}
       <div className="mt-6 bg-dark-card rounded-2xl p-6 border border-dark-border">
         <h4 className="text-lg font-semibold text-white mb-4">Ranking General de Ligas</h4>
         <div className="overflow-x-auto">
