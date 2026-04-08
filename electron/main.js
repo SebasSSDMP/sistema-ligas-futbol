@@ -62,6 +62,11 @@ app.whenReady().then(async () => {
         height: 800,
     })
 
-    mainWindow.loadFile(path.join(__dirname, '../frontend/dist/index.html'))
+    if (isDev) {
+        mainWindow.loadFile(path.join(__dirname, '../frontend/dist/index.html'))
+    } else {
+        mainWindow.loadFile(path.join(process.resourcesPath, 'frontend/dist/index.html'))
+    }
+
     mainWindow.webContents.openDevTools()
 })

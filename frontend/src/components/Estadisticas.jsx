@@ -18,16 +18,16 @@ export default function Estadisticas({ estadisticasExternas, rankingExterno = []
   }
 
   // ================= PIE =================
-  const datosGoles = [
+const datosGoles = [
     {
-      name: "≤ 3 goles",
-      value: stats.partidos_menos_igual_3_goles || 0,
+        name: "< 3 goles",
+        value: stats.partidos_menos_igual_3_goles || 0,
     },
     {
-      name: "> 3 goles",
-      value: stats.partidos_mas_3_goles || 0,
+        name: "≥ 3 goles",
+        value: stats.partidos_mas_3_goles || 0,
     }
-  ];
+];
 
   // ================= TOP 5 =================
   const datosRanking = (rankingExterno || [])

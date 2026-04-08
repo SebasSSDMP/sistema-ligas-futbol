@@ -795,7 +795,7 @@ export default function LigaDashboard({ liga, onVolver }) {
 
                       <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
                         <p className="text-gray-400 text-sm mb-1">
-                          Partidos &gt;{estadisticas.umbral_goles || 3} goles
+                          Partidos ≥{estadisticas.umbral_goles || 3} goles
                         </p>
                         <p className="text-3xl font-bold text-accent-orange">
                           {estadisticas.partidos_mas_3_goles || 0}
@@ -804,7 +804,7 @@ export default function LigaDashboard({ liga, onVolver }) {
 
                       <div className="bg-dark-card rounded-xl p-5 border border-dark-border">
                         <p className="text-gray-400 text-sm mb-1">
-                          Partidos ≤{estadisticas.umbral_goles || 3} goles
+                          Partidos &lt;{estadisticas.umbral_goles || 3} goles
                         </p>
                         <p className="text-3xl font-bold text-accent-purple">
                           {estadisticas.partidos_menos_igual_3_goles || 0}

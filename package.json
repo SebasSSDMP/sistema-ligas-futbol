@@ -14,10 +14,13 @@
     "appId": "com.statsbr.app",
     "productName": "StatsBR",
     "files": [
-      "electron/**/*",
-      "frontend/dist/**/*"
+      "electron/**/*"
     ],
     "extraResources": [
+      {
+        "from": "frontend/dist",
+        "to": "frontend/dist"
+      },
       {
         "from": "backend",
         "to": "backend"

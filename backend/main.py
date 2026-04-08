@@ -413,8 +413,8 @@ def obtener_estadisticas(
                 SELECT
                     AVG(p.goles_local + p.goles_visitante) AS promedio,
                     COUNT(p.id) AS total_partidos,
-                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3 THEN 1 ELSE 0 END) AS partidos_alto,
-                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END) AS partidos_bajo
+                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) >= 3 THEN 1 ELSE 0 END) AS partidos_alto,
+                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) < 3 THEN 1 ELSE 0 END) AS partidos_bajo
                 FROM partidos p
                 JOIN temporadas t ON p.temporada_id = t.id
                 WHERE t.liga_id = ? AND p.temporada_id = ?
@@ -427,8 +427,8 @@ def obtener_estadisticas(
                 SELECT
                     AVG(p.goles_local + p.goles_visitante) AS promedio,
                     COUNT(p.id) AS total_partidos,
-                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) > 3 THEN 1 ELSE 0 END) AS partidos_alto,
-                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) <= 3 THEN 1 ELSE 0 END) AS partidos_bajo
+                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) >= 3 THEN 1 ELSE 0 END) AS partidos_alto,
+                    SUM(CASE WHEN (p.goles_local + p.goles_visitante) < 3 THEN 1 ELSE 0 END) AS partidos_bajo
                 FROM partidos p
                 JOIN temporadas t ON p.temporada_id = t.id
                 WHERE t.liga_id = ?
@@ -442,8 +442,8 @@ def obtener_estadisticas(
                 "liga_id": liga_id,
                 "promedio_goles": round(float(row["promedio"]), 2) if row["promedio"] else 0.0,
                 "total_partidos": row["total_partidos"] or 0,
-                "partidos_mas_3_goles": row["partidos_alto"] or 0,
-                "partidos_menos_igual_3_goles": row["partidos_bajo"] or 0,
+                "partidos_mas_3_goles": row["partidos_alto"] or 0,      # ahora >= 3
+                "partidos_menos_igual_3_goles": row["partidos_bajo"] or 0,  # ahora < 3
                 "umbral_goles": 3,
                 "temporada_id": temporada_id,
             }
