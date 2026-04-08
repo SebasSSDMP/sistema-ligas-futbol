@@ -1,18 +1,17 @@
-import psycopg2
-import psycopg2.extras
+import sqlite3
 import requests
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
+from pathlib import Path
 import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── football-data.org v4 ──────────────────────────────────────────────────────
 API_BASE = "https://api.football-data.org/v4"
-API_KEY  = os.environ.get("FOOTBALL_DATA_KEY", "")
-HEADERS  = {"X-Auth-Token": API_KEY} if API_KEY else {}
+API_KEY = os.environ.get("FOOTBALL_DATA_KEY", "")
+HEADERS = {"X-Auth-Token": API_KEY} if API_KEY else {}
 
 TTL_CONFIG = {
     "ligas":    timedelta(hours=24),
@@ -20,22 +19,28 @@ TTL_CONFIG = {
     "partidos": timedelta(hours=1),
 }
 
+BASE_DIR = Path(__file__).parent.parent
+DATABASE_PATH = BASE_DIR / "data" / "futbol.db"
+
+
+def get_database_path():
+    path = Path(DATABASE_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def get_connection():
+    conn = sqlite3.connect(get_database_path())
+    conn.row_factory = sqlite3.Row
+    return conn
+
 
 class APIFootballCache:
     def __init__(self):
         self._init_cache_tables()
 
-    # ── DB helpers ────────────────────────────────────────────────────────────
-
     def _get_connection(self):
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable is not set")
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(database_url)
-        conn.cursor_factory = psycopg2.extras.RealDictCursor
-        return conn
+        return get_connection()
 
     def _init_cache_tables(self):
         conn = None
@@ -45,49 +50,48 @@ class APIFootballCache:
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cache_metadata (
-                    key        TEXT PRIMARY KEY,
-                    data_type  TEXT NOT NULL,
-                    created_at TIMESTAMP NOT NULL,
-                    expires_at TIMESTAMP NOT NULL
+                    key TEXT PRIMARY KEY,
+                    data_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
                 )
             """)
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ligas_cache (
-                    id         INTEGER PRIMARY KEY,
-                    name       TEXT,
-                    country    TEXT,
-                    logo       TEXT,
-                    season     INTEGER,
-                    fetched_at TIMESTAMP
+                    id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    country TEXT,
+                    logo TEXT,
+                    season INTEGER,
+                    fetched_at TEXT
                 )
             """)
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS equipos_cache (
-                    id         INTEGER PRIMARY KEY,
-                    liga_id    INTEGER,
-                    name       TEXT,
-                    logo       TEXT,
-                    fetched_at TIMESTAMP
+                    id INTEGER PRIMARY KEY,
+                    liga_id INTEGER,
+                    name TEXT,
+                    logo TEXT,
+                    fetched_at TEXT
                 )
             """)
 
-            # jornada es INTEGER en football-data.org (matchday)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS partidos_cache (
-                    id                   INTEGER PRIMARY KEY,
-                    equipo_local_id      INTEGER,
-                    equipo_visitante_id  INTEGER,
-                    fecha                TEXT,
-                    jornada              INTEGER,
-                    goles_local          INTEGER,
-                    goles_visitante      INTEGER,
-                    estado               TEXT,
-                    tiempo               INTEGER,
-                    liga_id              INTEGER,
-                    temporada            INTEGER,
-                    fetched_at           TIMESTAMP
+                    id INTEGER PRIMARY KEY,
+                    equipo_local_id INTEGER,
+                    equipo_visitante_id INTEGER,
+                    fecha TEXT,
+                    jornada INTEGER,
+                    goles_local INTEGER,
+                    goles_visitante INTEGER,
+                    estado TEXT,
+                    tiempo INTEGER,
+                    liga_id INTEGER,
+                    temporada INTEGER,
+                    fetched_at TEXT
                 )
             """)
 
@@ -106,7 +110,7 @@ class APIFootballCache:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT expires_at FROM cache_metadata WHERE key = %s",
+                "SELECT expires_at FROM cache_metadata WHERE key = ?",
                 (f"cache_{cache_key}",)
             )
             row = cursor.fetchone()
@@ -128,17 +132,13 @@ class APIFootballCache:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            ttl        = TTL_CONFIG.get(data_type, timedelta(hours=24))
-            now        = datetime.now()
+            ttl = TTL_CONFIG.get(data_type, timedelta(hours=24))
+            now = datetime.now()
             expires_at = now + ttl
             cursor.execute("""
-                INSERT INTO cache_metadata (key, data_type, created_at, expires_at)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (key) DO UPDATE SET
-                    data_type  = EXCLUDED.data_type,
-                    created_at = EXCLUDED.created_at,
-                    expires_at = EXCLUDED.expires_at
-            """, (f"cache_{cache_key}", data_type, now, expires_at))
+                INSERT OR REPLACE INTO cache_metadata (key, data_type, created_at, expires_at)
+                VALUES (?, ?, ?, ?)
+            """, (f"cache_{cache_key}", data_type, now.isoformat(), expires_at.isoformat()))
             conn.commit()
         except Exception as e:
             logger.error(f"Error setting cache metadata: {e}")
@@ -149,14 +149,7 @@ class APIFootballCache:
             if conn:
                 conn.close()
 
-    # ── HTTP ──────────────────────────────────────────────────────────────────
-
     def _call_api(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
-        """
-        Llama a football-data.org v4.
-        Autenticación: header X-Auth-Token.
-        Rate-limit free tier: 10 req/min.
-        """
         try:
             url = f"{API_BASE}{endpoint}"
             logger.info(f"API Request: GET {url}  params={params}")
@@ -168,7 +161,7 @@ class APIFootballCache:
                 logger.warning("Rate limit exceeded (10 req/min en free tier)")
                 return None
             elif response.status_code == 403:
-                logger.error("Acceso denegado — verifica FOOTBALL_DATA_KEY o el plan de suscripción")
+                logger.error("Acceso denegado - verifica FOOTBALL_DATA_KEY o el plan de suscripcion")
                 return None
             else:
                 logger.error(f"API Error {response.status_code}: {response.text}")
@@ -178,14 +171,7 @@ class APIFootballCache:
             logger.error(f"Request failed: {e}")
             return None
 
-    # ── LIGAS ─────────────────────────────────────────────────────────────────
-
     def get_ligas(self, force_refresh: bool = False) -> List[Dict]:
-        """
-        GET /v4/competitions
-        Respuesta: { "competitions": [ { "id", "name", "area": {"name"}, "emblem",
-                                         "currentSeason": {"startDate", "endDate"} } ] }
-        """
         if not force_refresh and self._is_cache_valid("ligas"):
             conn = None
             try:
@@ -207,15 +193,14 @@ class APIFootballCache:
             return []
 
         ligas = []
-        conn  = None
+        conn = None
         try:
-            conn   = self._get_connection()
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM ligas_cache")
 
             for comp in result.get("competitions", []):
                 current_season = comp.get("currentSeason") or {}
-                # El año de la temporada se saca del startDate, ej. "2024-08-16" → 2024
                 start_date = current_season.get("startDate", "")
                 season_year = int(start_date[:4]) if start_date else None
 
@@ -223,23 +208,17 @@ class APIFootballCache:
                     "id":      comp.get("id"),
                     "name":    comp.get("name"),
                     "country": (comp.get("area") or {}).get("name"),
-                    "logo":    comp.get("emblem"),       # football-data usa "emblem"
+                    "logo":    comp.get("emblem"),
                     "season":  season_year,
                 }
                 ligas.append(liga_data)
 
                 cursor.execute("""
-                    INSERT INTO ligas_cache (id, name, country, logo, season, fetched_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        name       = EXCLUDED.name,
-                        country    = EXCLUDED.country,
-                        logo       = EXCLUDED.logo,
-                        season     = EXCLUDED.season,
-                        fetched_at = EXCLUDED.fetched_at
+                    INSERT OR REPLACE INTO ligas_cache (id, name, country, logo, season, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     liga_data["id"], liga_data["name"], liga_data["country"],
-                    liga_data["logo"], liga_data["season"], datetime.now()
+                    liga_data["logo"], liga_data["season"], datetime.now().isoformat()
                 ))
 
             conn.commit()
@@ -255,16 +234,7 @@ class APIFootballCache:
 
         return ligas
 
-    # ── EQUIPOS ───────────────────────────────────────────────────────────────
-
     def get_equipos(self, liga_id: int, force_refresh: bool = False) -> List[Dict]:
-        """
-        GET /v4/competitions/{id}/teams
-        Respuesta: { "teams": [ { "id", "name", "crest" } ] }
-
-        Nota: liga_id es el ID numérico de la competición en football-data.org,
-        ej. 2021 = Premier League, 2014 = La Liga, etc.
-        """
         cache_key = f"equipos_{liga_id}"
 
         if not force_refresh and self._is_cache_valid(cache_key):
@@ -272,7 +242,7 @@ class APIFootballCache:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM equipos_cache WHERE liga_id = %s", (liga_id,))
+                cursor.execute("SELECT * FROM equipos_cache WHERE liga_id = ?", (liga_id,))
                 rows = [dict(row) for row in cursor.fetchall()]
                 if rows:
                     logger.info(f"Returning cached teams for competition {liga_id}")
@@ -288,32 +258,27 @@ class APIFootballCache:
             return []
 
         equipos = []
-        conn    = None
+        conn = None
         try:
-            conn   = self._get_connection()
+            conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM equipos_cache WHERE liga_id = %s", (liga_id,))
+            cursor.execute("DELETE FROM equipos_cache WHERE liga_id = ?", (liga_id,))
 
             for team in result.get("teams", []):
                 equipo_data = {
                     "id":      team.get("id"),
                     "liga_id": liga_id,
                     "name":    team.get("name"),
-                    "logo":    team.get("crest"),   # football-data usa "crest"
+                    "logo":    team.get("crest"),
                 }
                 equipos.append(equipo_data)
 
                 cursor.execute("""
-                    INSERT INTO equipos_cache (id, liga_id, name, logo, fetched_at)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        liga_id    = EXCLUDED.liga_id,
-                        name       = EXCLUDED.name,
-                        logo       = EXCLUDED.logo,
-                        fetched_at = EXCLUDED.fetched_at
+                    INSERT OR REPLACE INTO equipos_cache (id, liga_id, name, logo, fetched_at)
+                    VALUES (?, ?, ?, ?, ?)
                 """, (
                     equipo_data["id"], equipo_data["liga_id"],
-                    equipo_data["name"], equipo_data["logo"], datetime.now()
+                    equipo_data["name"], equipo_data["logo"], datetime.now().isoformat()
                 ))
 
             conn.commit()
@@ -329,26 +294,7 @@ class APIFootballCache:
 
         return equipos
 
-    # ── PARTIDOS ──────────────────────────────────────────────────────────────
-
     def get_partidos(self, liga_id: int, temporada: int = 2024, force_refresh: bool = False) -> List[Dict]:
-        """
-        GET /v4/competitions/{id}/matches?season={YYYY}&status=FINISHED
-        Respuesta:
-        {
-          "matches": [
-            {
-              "id", "utcDate", "status", "matchday",
-              "homeTeam": { "id", "name" },
-              "awayTeam":  { "id", "name" },
-              "score": {
-                "fullTime": { "home": int|null, "away": int|null }
-              },
-              "minute": int|null     ← tiempo transcurrido
-            }
-          ]
-        }
-        """
         cache_key = f"partidos_{liga_id}_{temporada}"
 
         if not force_refresh and self._is_cache_valid(cache_key):
@@ -358,7 +304,7 @@ class APIFootballCache:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT * FROM partidos_cache
-                    WHERE liga_id = %s AND temporada = %s
+                    WHERE liga_id = ? AND temporada = ?
                 """, (liga_id, temporada))
                 rows = [dict(row) for row in cursor.fetchall()]
                 if rows:
@@ -378,58 +324,46 @@ class APIFootballCache:
             return []
 
         partidos = []
-        conn     = None
+        conn = None
         try:
-            conn   = self._get_connection()
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM partidos_cache WHERE liga_id = %s AND temporada = %s",
+                "DELETE FROM partidos_cache WHERE liga_id = ? AND temporada = ?",
                 (liga_id, temporada)
             )
 
             for match in result.get("matches", []):
-                score     = match.get("score", {})
+                score = match.get("score", {})
                 full_time = score.get("fullTime", {})
 
                 partido_data = {
                     "id":                  match.get("id"),
                     "equipo_local_id":     (match.get("homeTeam") or {}).get("id"),
                     "equipo_visitante_id": (match.get("awayTeam") or {}).get("id"),
-                    "fecha":               match.get("utcDate"),       # ISO-8601 con Z
-                    "jornada":             match.get("matchday"),       # entero
+                    "fecha":               match.get("utcDate"),
+                    "jornada":             match.get("matchday"),
                     "goles_local":         full_time.get("home"),
                     "goles_visitante":     full_time.get("away"),
-                    "estado":              match.get("status"),         # "FINISHED", "SCHEDULED", etc.
-                    "tiempo":              match.get("minute"),         # minuto transcurrido o null
+                    "estado":              match.get("status"),
+                    "tiempo":              match.get("minute"),
                     "liga_id":             liga_id,
                     "temporada":           temporada,
                 }
                 partidos.append(partido_data)
 
                 cursor.execute("""
-                    INSERT INTO partidos_cache
+                    INSERT OR REPLACE INTO partidos_cache
                         (id, equipo_local_id, equipo_visitante_id, fecha, jornada,
                          goles_local, goles_visitante, estado, tiempo, liga_id, temporada, fetched_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        equipo_local_id      = EXCLUDED.equipo_local_id,
-                        equipo_visitante_id  = EXCLUDED.equipo_visitante_id,
-                        fecha                = EXCLUDED.fecha,
-                        jornada              = EXCLUDED.jornada,
-                        goles_local          = EXCLUDED.goles_local,
-                        goles_visitante      = EXCLUDED.goles_visitante,
-                        estado               = EXCLUDED.estado,
-                        tiempo               = EXCLUDED.tiempo,
-                        liga_id              = EXCLUDED.liga_id,
-                        temporada            = EXCLUDED.temporada,
-                        fetched_at           = EXCLUDED.fetched_at
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     partido_data["id"],          partido_data["equipo_local_id"],
                     partido_data["equipo_visitante_id"], partido_data["fecha"],
                     partido_data["jornada"],     partido_data["goles_local"],
                     partido_data["goles_visitante"], partido_data["estado"],
                     partido_data["tiempo"],      partido_data["liga_id"],
-                    partido_data["temporada"],   datetime.now()
+                    partido_data["temporada"],   datetime.now().isoformat()
                 ))
 
             conn.commit()
@@ -445,12 +379,10 @@ class APIFootballCache:
 
         return partidos
 
-    # ── CACHE STATUS / CLEAR ──────────────────────────────────────────────────
-
     def get_cache_status(self) -> Dict:
         conn = None
         try:
-            conn   = self._get_connection()
+            conn = self._get_connection()
             cursor = conn.cursor()
 
             cursor.execute("SELECT * FROM cache_metadata")
@@ -508,20 +440,20 @@ class APIFootballCache:
     def clear_cache(self, data_type: Optional[str] = None):
         conn = None
         try:
-            conn   = self._get_connection()
+            conn = self._get_connection()
             cursor = conn.cursor()
 
             if data_type in ("ligas", None):
                 cursor.execute("DELETE FROM ligas_cache")
-                cursor.execute("DELETE FROM cache_metadata WHERE key = %s", ("cache_ligas",))
+                cursor.execute("DELETE FROM cache_metadata WHERE key = ?", ("cache_ligas",))
 
             if data_type in ("equipos", None):
                 cursor.execute("DELETE FROM equipos_cache")
-                cursor.execute("DELETE FROM cache_metadata WHERE key LIKE %s", ("cache_equipos_%",))
+                cursor.execute("DELETE FROM cache_metadata WHERE key LIKE ?", ("cache_equipos_%",))
 
             if data_type in ("partidos", None):
                 cursor.execute("DELETE FROM partidos_cache")
-                cursor.execute("DELETE FROM cache_metadata WHERE key LIKE %s", ("cache_partidos_%",))
+                cursor.execute("DELETE FROM cache_metadata WHERE key LIKE ?", ("cache_partidos_%",))
 
             conn.commit()
             logger.info(f"Cache cleared: {data_type or 'all'}")

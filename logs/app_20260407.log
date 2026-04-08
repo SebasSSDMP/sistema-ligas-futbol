@@ -1,0 +1,4 @@
+2026-04-07 11:33:53 | INFO     | database.connection | Base de datos conectada: C:\statsbr\data\futbol.db
+2026-04-07 11:33:54 | INFO     | ui.app | Navegando a: PantallaPrincipal
+2026-04-07 11:33:54 | INFO     | ui.app | Aplicación iniciada
+2026-04-07 11:34:01 | INFO     | database.connection | Conexión cerrada

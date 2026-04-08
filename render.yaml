@@ -1,17 +1,15 @@
-services:
-  - type: web
-    name: futbol-backend
-    env: python
-    pythonVersion: "3.11.9"
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: API_FOOTBALL_KEY
-        fromValue:
-          name: API_FOOTBALL_KEY
-      - key: ALLOWED_ORIGINS
-        value: https://futbol-frontend.onrender.com
-      - key: DATABASE_URL
-        fromDatabase:
-          name: futbol-db
-          property: connectionString
+# NOTA: Este archivo ya no aplica para la version de escritorio.
+# La aplicacion ahora usa SQLite de forma local y no requiere despliegue en la nube.
+#
+# Si deseas ejecutar el backend FastAPI de forma independiente:
+# 1. pip install -r backend/requirements.txt
+# 2. cd backend
+# 3. uvicorn main:app --host 0.0.0.0 --port 8000
+
+# services:
+#   - type: web
+#     name: futbol-backend
+#     env: python
+#     pythonVersion: "3.11.9"
+#     buildCommand: pip install -r backend/requirements.txt
+#     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
