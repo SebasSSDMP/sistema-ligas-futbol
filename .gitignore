@@ -8,6 +8,14 @@ __pycache__/
 dist/
 build/
 
+# Python embebido (no debe ir en el repo)
+python-embed/
+get-pip.py
+
+# Node / Electron
+node_modules/
+npm-debug.log*
+
 # Entorno virtual
 venv/
 env/
@@ -16,6 +24,10 @@ env/
 # Base de datos
 data/
 *.db
+
+# Logs
+logs/
+*.log
 
 # IDE
 .vscode/
